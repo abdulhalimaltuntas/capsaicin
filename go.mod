@@ -1,3 +1,5 @@
-module github.com/hawtsauceTR/capsaicin
+module github.com/capsaicin/scanner
 
-go 1.24.9
+go 1.21
+
+require golang.org/x/time v0.5.0
