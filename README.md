@@ -34,7 +34,7 @@ Capsaicin discovers hidden paths, leaked secrets, and WAF configurations with su
 ### Install
 
 ```bash
-go install github.com/capsaicin/scanner/cmd/capsaicin@latest
+go install github.com/abdulhalimaltuntas/scanner/cmd/capsaicin@latest
 ```
 
 Or build from source:
