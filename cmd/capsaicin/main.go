@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/capsaicin/scanner/internal/config"
 	"github.com/capsaicin/scanner/internal/reporting"
@@ -60,6 +61,8 @@ func main() {
 	}()
 
 	fmt.Println("Starting scan...")
+	scanStart := time.Now()
+	runID := reporting.GenerateRunID()
 
 	type scanResult struct {
 		results []scanner.Result
@@ -103,7 +106,8 @@ func main() {
 	ui.PrintSummary(stats)
 
 	if cfg.OutputFile != "" {
-		if err := reporting.SaveJSON(results, cfg.OutputFile); err != nil {
+		scanDuration := time.Since(scanStart)
+		if err := reporting.SaveJSONReport(results, cfg.OutputFile, targets, runID, scanStart, scanDuration); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to save JSON: %s\n", err)
 		} else {
 			fmt.Printf("\nJSON report saved: %s\n", cfg.OutputFile)
@@ -115,6 +119,14 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Failed to generate HTML: %s\n", err)
 		} else {
 			fmt.Printf("HTML report saved: %s\n", cfg.HTMLReport)
+		}
+	}
+
+	if cfg.FailOn != "" {
+		exitCode := scanner.DetermineExitCode(results, cfg.FailOn)
+		if exitCode != 0 {
+			fmt.Fprintf(os.Stderr, "\n[!] Findings meet --fail-on %s threshold (exit code %d)\n", cfg.FailOn, exitCode)
+			os.Exit(exitCode)
 		}
 	}
 }

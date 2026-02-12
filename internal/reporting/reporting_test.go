@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/capsaicin/scanner/internal/scanner"
 )
@@ -146,8 +147,10 @@ func TestSaveJSONReport_Versioned(t *testing.T) {
 
 	results := testResults()
 	targets := []string{"http://example.com"}
+	startTime := time.Now().Add(-5 * time.Second)
+	duration := 5 * time.Second
 
-	if err := SaveJSONReport(results, tmpFile.Name(), targets, "test-run-123"); err != nil {
+	if err := SaveJSONReport(results, tmpFile.Name(), targets, "test-run-123", startTime, duration); err != nil {
 		t.Fatalf("SaveJSONReport failed: %v", err)
 	}
 
@@ -161,8 +164,8 @@ func TestSaveJSONReport_Versioned(t *testing.T) {
 		t.Fatalf("failed to unmarshal report: %v", err)
 	}
 
-	if report.SchemaVersion != "3.0" {
-		t.Errorf("expected schema_version 3.0, got %s", report.SchemaVersion)
+	if report.SchemaVersion != "3.1" {
+		t.Errorf("expected schema_version 3.1, got %s", report.SchemaVersion)
 	}
 
 	if report.RunID != "test-run-123" {
@@ -173,8 +176,24 @@ func TestSaveJSONReport_Versioned(t *testing.T) {
 		t.Errorf("expected 1 target, got %d", report.Metadata.TargetCount)
 	}
 
+	if report.Metadata.Duration == "" {
+		t.Error("expected non-empty duration")
+	}
+
 	if len(report.Results) != 3 {
 		t.Errorf("expected 3 results, got %d", len(report.Results))
+	}
+
+	if report.Summary.TotalFindings != 3 {
+		t.Errorf("expected 3 total findings in summary, got %d", report.Summary.TotalFindings)
+	}
+
+	if report.Summary.SecretsFound != 1 {
+		t.Errorf("expected 1 secret in summary, got %d", report.Summary.SecretsFound)
+	}
+
+	if report.Summary.CriticalFindings != 1 {
+		t.Errorf("expected 1 critical in summary, got %d", report.Summary.CriticalFindings)
 	}
 }
 

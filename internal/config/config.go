@@ -27,6 +27,7 @@ type Config struct {
 	AllowPatterns []string
 	DenyPatterns  []string
 	SafeMode      bool
+	FailOn        string
 }
 
 type headerFlags []string
@@ -94,6 +95,7 @@ func Parse() Config {
 	flag.Var(&allowPatterns, "allow", "Allow domain pattern (repeatable)")
 	flag.Var(&denyPatterns, "deny", "Deny domain pattern (repeatable)")
 	flag.BoolVar(&config.SafeMode, "safe-mode", false, "Disable bypass attempts and aggressive techniques")
+	flag.StringVar(&config.FailOn, "fail-on", "", "Exit with code 2 if findings meet severity threshold (critical|high|medium|low|info)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: capsaicin [options]\n\n")
@@ -113,6 +115,7 @@ func Parse() Config {
 		fmt.Fprintf(os.Stderr, "  --allow pattern Allow domain pattern (repeatable)\n")
 		fmt.Fprintf(os.Stderr, "  --deny pattern  Deny domain pattern (repeatable)\n")
 		fmt.Fprintf(os.Stderr, "  --safe-mode     Disable bypass attempts\n")
+		fmt.Fprintf(os.Stderr, "  --fail-on str   Exit code 2 if severity >= threshold (critical|high|medium|low|info)\n")
 		fmt.Fprintf(os.Stderr, "  -v              Verbose mode\n")
 		fmt.Fprintf(os.Stderr, "  -o string       JSON output file\n")
 		fmt.Fprintf(os.Stderr, "  --html string   HTML report file\n\n")
@@ -179,6 +182,13 @@ func Validate(config *Config, targets []string) error {
 	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
 	if !validLogLevels[config.LogLevel] {
 		return fmt.Errorf("invalid log level %q. Valid values: debug, info, warn, error", config.LogLevel)
+	}
+
+	if config.FailOn != "" {
+		validSeverities := map[string]bool{"critical": true, "high": true, "medium": true, "low": true, "info": true}
+		if !validSeverities[config.FailOn] {
+			return fmt.Errorf("invalid --fail-on value %q. Valid values: critical, high, medium, low, info", config.FailOn)
+		}
 	}
 
 	return nil

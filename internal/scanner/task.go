@@ -13,6 +13,9 @@ type Result struct {
 	WordCount   int      `json:"word_count"`
 	LineCount   int      `json:"line_count"`
 	Critical    bool     `json:"critical"`
+	Severity    string   `json:"severity"`
+	Confidence  string   `json:"confidence"`
+	Tags        []string `json:"tags,omitempty"`
 	Method      string   `json:"method"`
 	Timestamp   string   `json:"timestamp"`
 	Server      string   `json:"server,omitempty"`

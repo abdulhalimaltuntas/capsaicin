@@ -7,7 +7,7 @@ Capsaicin discovers hidden paths, leaked secrets, and WAF configurations with su
 [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen)](/.github/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/Coverage-63%25-yellow)]()
+[![Coverage](https://img.shields.io/badge/Coverage-75%25-brightgreen)]()
 
 ---
 
@@ -18,11 +18,14 @@ Capsaicin discovers hidden paths, leaked secrets, and WAF configurations with su
 | 🎯 **Smart Calibration** | Automatic 404 baseline to eliminate false positives |
 | 🔑 **Secret Detection** | 15 patterns with severity scoring and entropy analysis |
 | 🛡 **WAF Detection** | 16 signatures — header, cookie, and body-based |
+| 📊 **Risk Scoring** | Severity + confidence + tags on every finding |
 | 🔄 **Method Fuzzing** | Auto-tests PUT/POST/DELETE/PATCH on 405 responses |
 | 🚪 **Bypass Engine** | Header manipulation for 403/401 bypass attempts |
 | 🌳 **Recursive Scan** | Configurable depth-limited directory traversal |
 | ⚡ **Circuit Breaker** | Automatic backoff for failing targets |
-| 📊 **Dual Reports** | JSON (versioned schema 3.0) + Interactive HTML |
+| 🔁 **Deduplication** | URL+Method dedup keeping highest-severity finding |
+| 📊 **Dual Reports** | JSON (versioned schema 3.1) + Interactive HTML |
+| 🚦 **CI Exit Codes** | `--fail-on` severity threshold for pipeline gates |
 
 ---
 
@@ -95,6 +98,25 @@ capsaicin -u https://target.com -w wordlist.txt \
 capsaicin -u https://target.com -w wordlist.txt --safe-mode
 ```
 
+> **Note:** `--safe-mode` disables both bypass header injection (for 403/401 responses) and HTTP method fuzzing (for 405 responses). Use this when scanning production systems or when authorization testing is out of scope.
+
+### CI/CD Pipeline with Severity Gate
+
+```bash
+# Fail the pipeline if any high or critical findings exist
+capsaicin -u https://staging.example.com -w wordlist.txt \
+  --fail-on high -o results.json --rate-limit 20
+echo "Exit code: $?"
+# Exit 0 = no findings at threshold, Exit 2 = threshold exceeded
+```
+
+### Severity-Filtered Scan
+
+```bash
+# Only fail on critical findings (secrets, bypasses with secrets)
+capsaicin -u https://target.com -w wordlist.txt --fail-on critical -o results.json
+```
+
 ### Environment Variables
 
 ```bash
@@ -134,7 +156,8 @@ capsaicin -u https://target.com -w wordlist.txt
 | `--max-response-mb` | `10` | Max response body size (MB) |
 | `--log-level` | `info` | Log level: `debug` `info` `warn` `error` |
 | `--dry-run` | `false` | Show scan plan without executing |
-| `--safe-mode` | `false` | Disable bypass attempts |
+| `--safe-mode` | `false` | Disable bypass attempts and method fuzzing |
+| `--fail-on` | — | Exit code 2 if severity ≥ threshold (`critical` `high` `medium` `low` `info`) |
 | `--allow` | — | Allowed domain pattern (repeatable) |
 | `--deny` | — | Denied domain pattern (repeatable) |
 
@@ -211,6 +234,81 @@ Results Channel → Reporter (JSON/HTML)
 ### WAF Signatures (16)
 
 Cloudflare · AWS WAF · Akamai · Imperva · F5 BigIP · Sucuri · StackPath · Wordfence · Barracuda · ModSecurity · Fortinet FortiWeb · AWS Shield · DenyAll · Cloudfront · Fastly · Varnish
+
+### Risk Scoring
+
+Every finding is automatically enriched with:
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `severity` | `critical` `high` `medium` `low` `info` | Risk level based on finding type |
+| `confidence` | `confirmed` `firm` `tentative` | Evidence strength |
+| `tags` | `secret` `bypass` `method-fuzz` `directory` `access-control` `waf` | Classification labels |
+
+**Severity Assignment Rules:**
+
+| Finding Type | Severity | Confidence |
+|-------------|----------|------------|
+| Secret detected (AWS, private key, DB conn) | 🔴 Critical | Confirmed |
+| Secret detected (JWT, Slack, Google) | 🟠 High | Confirmed |
+| Bypass success (403→200) | 🟠 High | Firm |
+| Method fuzz success (405→200) | 🟡 Medium | Firm |
+| Directory listing | 🟢 Low | Tentative |
+| Access control (401/403) | 🟢 Low | Tentative |
+| Standard 200 response | ⚪ Info | Tentative |
+
+---
+
+## 🚦 Exit Codes & CI Integration
+
+| Exit Code | Meaning |
+|-----------|--------|
+| `0` | Scan completed, no findings meet threshold |
+| `1` | Scan error (invalid config, network failure) |
+| `2` | Findings meet `--fail-on` severity threshold |
+
+### CI/CD Examples
+
+```bash
+# GitHub Actions / GitLab CI — fail on critical
+capsaicin -u $TARGET_URL -w wordlist.txt --fail-on critical -o results.json
+
+# Fail on high or above
+capsaicin -u $TARGET_URL -w wordlist.txt --fail-on high -o results.json || exit 1
+
+# Safe production scan with rate limiting
+capsaicin -u $PROD_URL -w wordlist.txt \
+  --safe-mode --rate-limit 10 -t 5 \
+  --fail-on critical -o scan-$(date +%s).json
+```
+
+### JSON Report Schema (v3.1)
+
+The `--output` JSON report now includes:
+
+```json
+{
+  "schema_version": "3.1",
+  "run_id": "a1b2c3d4e5f6",
+  "metadata": {
+    "start_time": "2025-01-01T00:00:00Z",
+    "end_time": "2025-01-01T00:01:30Z",
+    "duration": "1m30s",
+    "target_count": 1,
+    "targets_hash": "abc123...",
+    "total_results": 42,
+    "version": "3.1.0"
+  },
+  "summary": {
+    "total_findings": 42,
+    "by_severity": {"critical": 1, "high": 3, "medium": 5, "low": 10, "info": 23},
+    "secrets_found": 1,
+    "critical_findings": 2,
+    "max_severity": "critical"
+  },
+  "results": [...]
+}
+```
 
 ---
 

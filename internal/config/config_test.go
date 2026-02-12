@@ -144,3 +144,50 @@ func TestEnvOrDefaultStr(t *testing.T) {
 		t.Errorf("expected 'default', got %q", result)
 	}
 }
+
+func TestValidate_FailOnValid(t *testing.T) {
+	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(wordlist.Name())
+	wordlist.Close()
+
+	for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
+		cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: 50, Timeout: 10, FailOn: sev}
+		err := Validate(cfg, []string{"http://example.com"})
+		if err != nil {
+			t.Errorf("expected no error for --fail-on %s, got %v", sev, err)
+		}
+	}
+}
+
+func TestValidate_FailOnInvalid(t *testing.T) {
+	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(wordlist.Name())
+	wordlist.Close()
+
+	cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: 50, Timeout: 10, FailOn: "invalid"}
+	err = Validate(cfg, []string{"http://example.com"})
+	if err == nil {
+		t.Error("expected error for invalid --fail-on value")
+	}
+}
+
+func TestValidate_FailOnEmpty(t *testing.T) {
+	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(wordlist.Name())
+	wordlist.Close()
+
+	cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: 50, Timeout: 10, FailOn: ""}
+	err = Validate(cfg, []string{"http://example.com"})
+	if err != nil {
+		t.Errorf("expected no error for empty --fail-on, got %v", err)
+	}
+}

@@ -85,7 +85,7 @@ func worker(
 			continue
 		}
 
-		if result.StatusCode == 405 {
+		if result.StatusCode == 405 && !cfg.SafeMode {
 			alternativeMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
 			for _, method := range alternativeMethods {
 				select {
@@ -105,6 +105,7 @@ func worker(
 					}
 
 					stats.IncrementFound()
+					AssignSeverityAndConfidence(methodResult)
 					results <- *methodResult
 					break
 				}
@@ -123,7 +124,7 @@ func worker(
 				}
 			}
 
-			if result.StatusCode == 403 || result.StatusCode == 401 {
+			if !cfg.SafeMode && (result.StatusCode == 403 || result.StatusCode == 401) {
 				bypassResult, bypassBody := attemptBypass(ctx, url, userAgent, cfg, client)
 				if bypassResult != nil && (bypassResult.StatusCode == 200 || bypassResult.StatusCode == 302) {
 					bypassResult.Critical = true
@@ -134,6 +135,7 @@ func worker(
 						stats.IncrementSecrets()
 					}
 
+					AssignSeverityAndConfidence(bypassResult)
 					results <- *bypassResult
 				}
 			}
@@ -152,6 +154,7 @@ func worker(
 				}
 			}
 
+			AssignSeverityAndConfidence(result)
 			results <- *result
 		}
 

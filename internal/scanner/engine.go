@@ -62,6 +62,7 @@ func (e *Engine) RunContext(ctx context.Context, targets []string) ([]Result, *S
 
 	var results []Result
 	var resultsMutex sync.Mutex
+	dedup := NewDeduplicator()
 
 	scannedDirs := make(map[string]map[string]bool)
 	var dirMutex sync.Mutex
@@ -77,9 +78,12 @@ func (e *Engine) RunContext(ctx context.Context, targets []string) ([]Result, *S
 	go func() {
 		defer wg.Done()
 		for result := range resultChan {
-			resultsMutex.Lock()
-			results = append(results, result)
-			resultsMutex.Unlock()
+			r := result // copy for pointer
+			if dedup.Add(&r) {
+				resultsMutex.Lock()
+				results = append(results, r)
+				resultsMutex.Unlock()
+			}
 
 			if result.WAFDetected != "" {
 				stats.IncrementWAFHits()

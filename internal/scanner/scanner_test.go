@@ -540,3 +540,133 @@ func TestEngineMultipleTargets(t *testing.T) {
 		t.Errorf("expected 2 found, got %d", stats.GetFound())
 	}
 }
+
+func TestEngineSafeMode_NoBypass(t *testing.T) {
+	bypassAttempted := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/protected" {
+			if r.Header.Get("X-Forwarded-For") == "127.0.0.1" {
+				bypassAttempted = true
+				w.WriteHeader(200)
+				w.Write([]byte("Bypassed!"))
+				return
+			}
+			w.WriteHeader(403)
+			w.Write([]byte("Forbidden"))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	wordlistPath := createWordlist(t, "protected")
+
+	cfg := config.Config{
+		Wordlist:      wordlistPath,
+		Threads:       1,
+		Timeout:       10,
+		RateLimit:     0,
+		RetryAttempts: 0,
+		MaxResponseMB: 10,
+		SafeMode:      true,
+	}
+
+	engine := NewEngine(cfg)
+	results, _, err := engine.Run([]string{server.URL})
+
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	if bypassAttempted {
+		t.Error("safe mode should prevent bypass attempts")
+	}
+
+	for _, r := range results {
+		if strings.Contains(r.URL, "BYPASS") || strings.Contains(r.Method, "BYPASS") {
+			t.Error("safe mode should not produce bypass results")
+		}
+	}
+}
+
+func TestEngineSafeMode_NoMethodFuzzing(t *testing.T) {
+	methodsSeen := make(map[string]bool)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/endpoint" {
+			methodsSeen[r.Method] = true
+			if r.Method == "GET" {
+				w.WriteHeader(405)
+				return
+			}
+			w.WriteHeader(200)
+			w.Write([]byte("OK"))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	wordlistPath := createWordlist(t, "endpoint")
+
+	cfg := config.Config{
+		Wordlist:      wordlistPath,
+		Threads:       1,
+		Timeout:       10,
+		RateLimit:     0,
+		RetryAttempts: 0,
+		MaxResponseMB: 10,
+		SafeMode:      true,
+	}
+
+	engine := NewEngine(cfg)
+	_, _, err := engine.Run([]string{server.URL})
+
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	for method := range methodsSeen {
+		if method != "GET" {
+			t.Errorf("safe mode should only use GET, saw %s", method)
+		}
+	}
+}
+
+func TestEngineResultsHaveSeverity(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/page" {
+			w.WriteHeader(200)
+			w.Write([]byte("Hello"))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	wordlistPath := createWordlist(t, "page")
+
+	cfg := config.Config{
+		Wordlist:      wordlistPath,
+		Threads:       1,
+		Timeout:       10,
+		RateLimit:     0,
+		RetryAttempts: 0,
+		MaxResponseMB: 10,
+	}
+
+	engine := NewEngine(cfg)
+	results, _, err := engine.Run([]string{server.URL})
+
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	for _, r := range results {
+		if r.Severity == "" {
+			t.Errorf("result %s should have severity assigned", r.URL)
+		}
+		if r.Confidence == "" {
+			t.Errorf("result %s should have confidence assigned", r.URL)
+		}
+	}
+}

@@ -16,16 +16,27 @@ type ScanReport struct {
 	SchemaVersion string           `json:"schema_version"`
 	RunID         string           `json:"run_id"`
 	Metadata      ScanMetadata     `json:"metadata"`
+	Summary       ScanSummary      `json:"summary"`
 	Results       []scanner.Result `json:"results"`
 }
 
 type ScanMetadata struct {
 	StartTime    string `json:"start_time"`
 	EndTime      string `json:"end_time"`
+	Duration     string `json:"duration"`
 	TargetCount  int    `json:"target_count"`
 	TargetsHash  string `json:"targets_hash"`
 	TotalResults int    `json:"total_results"`
 	Version      string `json:"version"`
+	Profile      string `json:"profile,omitempty"`
+}
+
+type ScanSummary struct {
+	TotalFindings    int            `json:"total_findings"`
+	BySeverity       map[string]int `json:"by_severity"`
+	SecretsFound     int            `json:"secrets_found"`
+	CriticalFindings int            `json:"critical_findings"`
+	MaxSeverity      string         `json:"max_severity"`
 }
 
 func SaveJSON(results []scanner.Result, filename string) error {
@@ -49,7 +60,7 @@ func SaveJSON(results []scanner.Result, filename string) error {
 	return encoder.Encode(sorted)
 }
 
-func SaveJSONReport(results []scanner.Result, filename string, targets []string, runID string) error {
+func SaveJSONReport(results []scanner.Result, filename string, targets []string, runID string, startTime time.Time, duration time.Duration) error {
 	sorted := make([]scanner.Result, len(results))
 	copy(sorted, results)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -60,18 +71,21 @@ func SaveJSONReport(results []scanner.Result, filename string, targets []string,
 	})
 
 	targetsHash := hashStrings(targets)
+	summary := buildSummary(sorted)
 
 	report := ScanReport{
-		SchemaVersion: "3.0",
+		SchemaVersion: "3.1",
 		RunID:         runID,
 		Metadata: ScanMetadata{
-			StartTime:    time.Now().Format(time.RFC3339),
-			EndTime:      time.Now().Format(time.RFC3339),
+			StartTime:    startTime.Format(time.RFC3339),
+			EndTime:      startTime.Add(duration).Format(time.RFC3339),
+			Duration:     duration.Round(time.Millisecond).String(),
 			TargetCount:  len(targets),
 			TargetsHash:  targetsHash,
 			TotalResults: len(sorted),
-			Version:      "3.0.0",
+			Version:      "3.1.0",
 		},
+		Summary: summary,
 		Results: sorted,
 	}
 
@@ -84,6 +98,34 @@ func SaveJSONReport(results []scanner.Result, filename string, targets []string,
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(report)
+}
+
+// buildSummary computes aggregate statistics from results for the report envelope.
+func buildSummary(results []scanner.Result) ScanSummary {
+	severityRank := map[string]int{"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
+
+	summary := ScanSummary{
+		TotalFindings: len(results),
+		BySeverity:    map[string]int{"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0},
+	}
+
+	maxRank := 0
+	for _, r := range results {
+		if r.Severity != "" {
+			summary.BySeverity[r.Severity]++
+			if severityRank[r.Severity] > maxRank {
+				maxRank = severityRank[r.Severity]
+				summary.MaxSeverity = r.Severity
+			}
+		}
+		if r.SecretFound {
+			summary.SecretsFound++
+		}
+		if r.Critical {
+			summary.CriticalFindings++
+		}
+	}
+	return summary
 }
 
 func hashStrings(ss []string) string {
