@@ -2,7 +2,6 @@ package scanner
 
 import (
 	"bufio"
-	"context"
 	"os"
 	"strings"
 	"sync"
@@ -43,7 +42,7 @@ func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
 	stats := NewStats(initialTaskCount)
 
 	for _, target := range targets {
-		detection.PerformCalibration(target, e.client.httpClient, e.config.CustomHeaders, e.calCache)
+		detection.PerformCalibration(target, e.client.HTTPClient(), e.config.CustomHeaders, e.calCache)
 	}
 
 	var results []Result
@@ -56,9 +55,7 @@ func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
 	resultChan := make(chan Result, e.config.Threads*2)
 	newTaskChan := make(chan Task, e.config.Threads*2)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	var taskWg sync.WaitGroup
 	var wg sync.WaitGroup
 
 	wg.Add(1)
@@ -89,6 +86,7 @@ func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
 					dirMutex.Unlock()
 
 					for _, word := range words {
+						taskWg.Add(1)
 						task := Task{
 							TargetURL: newTask.TargetURL,
 							Path:      strings.TrimSuffix(newTask.Path, "/") + "/" + word,
@@ -98,6 +96,7 @@ func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
 						stats.IncrementTotal(1)
 
 						for _, ext := range e.config.Extensions {
+							taskWg.Add(1)
 							taskWithExt := Task{
 								TargetURL: newTask.TargetURL,
 								Path:      strings.TrimSuffix(newTask.Path, "/") + "/" + word + ext,
@@ -107,8 +106,10 @@ func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
 							stats.IncrementTotal(1)
 						}
 					}
+					taskWg.Done()
 				} else {
 					dirMutex.Unlock()
+					taskWg.Done()
 				}
 			}
 		}()
@@ -125,8 +126,11 @@ func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
 			stats,
 			e.calCache,
 			workerDone,
+			&taskWg,
 		)
 	}
+
+	taskWg.Add(int(initialTaskCount))
 
 	go func() {
 		for _, target := range targets {
@@ -140,6 +144,10 @@ func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
 				}
 			}
 		}
+	}()
+
+	go func() {
+		taskWg.Wait()
 		close(taskChan)
 	}()
 

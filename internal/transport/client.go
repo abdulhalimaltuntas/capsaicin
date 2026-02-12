@@ -15,20 +15,20 @@ import (
 )
 
 type Client struct {
-	httpClient    *http.Client
-	limiters      map[string]*rate.Limiter
-	limitersMu    sync.RWMutex
-	retryAttempts int
-	maxBodyBytes  int64
+	httpClient     *http.Client
+	limiters       map[string]*rate.Limiter
+	limitersMu     sync.RWMutex
+	retryAttempts  int
+	maxBodyBytes   int64
 	circuitBreaker *CircuitBreaker
 }
 
 type CircuitBreaker struct {
-	mu             sync.Mutex
-	failureCounts  map[string]int
-	lastFailure    map[string]time.Time
-	threshold      int
-	resetTimeout   time.Duration
+	mu            sync.Mutex
+	failureCounts map[string]int
+	lastFailure   map[string]time.Time
+	threshold     int
+	resetTimeout  time.Duration
 }
 
 func NewClient(timeout int, rateLimit int, retryAttempts int, maxBodyMB int) *Client {
@@ -76,7 +76,7 @@ func (c *Client) getRateLimiter(host string, rateLimit int) *rate.Limiter {
 		return limiter
 	}
 
-	limiter = rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+	limiter = rate.NewLimiter(rate.Limit(rateLimit), 1)
 	c.limiters[host] = limiter
 	return limiter
 }
@@ -130,6 +130,14 @@ func (c *Client) Do(req *http.Request, rateLimit int) (*http.Response, []byte, e
 			continue
 		}
 
+		if resp.StatusCode >= 500 {
+			c.circuitBreaker.recordFailure(host)
+			if attempt == c.retryAttempts {
+				return resp, body, nil
+			}
+			continue
+		}
+
 		c.circuitBreaker.recordSuccess(host)
 		return resp, body, nil
 	}
@@ -173,4 +181,8 @@ func (cb *CircuitBreaker) recordSuccess(host string) {
 	if count := cb.failureCounts[host]; count > 0 {
 		cb.failureCounts[host] = count - 1
 	}
+}
+
+func (c *Client) HTTPClient() *http.Client {
+	return c.httpClient
 }

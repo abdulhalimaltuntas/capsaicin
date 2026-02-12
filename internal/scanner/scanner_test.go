@@ -74,7 +74,10 @@ func TestEngineBasicScan(t *testing.T) {
 
 func TestEngineRecursiveScan(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/" {
+		if r.URL.Path == "/api" {
+			w.Header().Set("Location", r.URL.Path+"/")
+			w.WriteHeader(301)
+		} else if r.URL.Path == "/api/" {
 			w.WriteHeader(200)
 		} else if r.URL.Path == "/api/users" {
 			w.WriteHeader(200)

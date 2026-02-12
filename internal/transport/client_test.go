@@ -3,6 +3,7 @@ package transport
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -83,7 +84,8 @@ func TestCircuitBreaker(t *testing.T) {
 		client.Do(req, 0)
 	}
 
-	if !client.circuitBreaker.isOpen(server.URL) {
+	parsedURL, _ := url.Parse(server.URL)
+	if !client.circuitBreaker.isOpen(parsedURL.Host) {
 		t.Error("expected circuit breaker to be open")
 	}
 

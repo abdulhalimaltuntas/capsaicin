@@ -1,10 +1,10 @@
 package scanner
 
 import (
-	"fmt"
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/capsaicin/scanner/internal/config"
@@ -32,6 +32,7 @@ func worker(
 	stats *Stats,
 	calCache *detection.CalibrationCache,
 	done chan<- struct{},
+	taskWg *sync.WaitGroup,
 ) {
 	defer func() {
 		done <- struct{}{}
@@ -55,6 +56,7 @@ func worker(
 				time.Sleep(2 * time.Second)
 				consecutiveErrors = 0
 			}
+			taskWg.Done()
 			continue
 		}
 
@@ -62,6 +64,7 @@ func worker(
 
 		signatures, _ := calCache.Get(task.TargetURL)
 		if detection.MatchesSignature(result.StatusCode, result.Size, signatures) {
+			taskWg.Done()
 			continue
 		}
 
@@ -114,6 +117,7 @@ func worker(
 
 			if cfg.MaxDepth > 0 && task.Depth < cfg.MaxDepth && isDirectory(result) {
 				dirPath := extractPath(url)
+				taskWg.Add(1)
 				newTasks <- Task{
 					TargetURL: task.TargetURL,
 					Path:      dirPath,
@@ -123,6 +127,8 @@ func worker(
 
 			results <- *result
 		}
+
+		taskWg.Done()
 	}
 }
 
