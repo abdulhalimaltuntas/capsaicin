@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -13,6 +14,9 @@ type Stats struct {
 	Secrets   int64
 	WAFHits   int64
 	StartTime time.Time
+
+	currentURL string
+	urlMu      sync.RWMutex
 }
 
 func NewStats(initialTotal int64) *Stats {
@@ -68,4 +72,16 @@ func (s *Stats) GetWAFHits() int64 {
 
 func (s *Stats) GetTotal() int64 {
 	return atomic.LoadInt64(&s.Total)
+}
+
+func (s *Stats) SetCurrentURL(url string) {
+	s.urlMu.Lock()
+	s.currentURL = url
+	s.urlMu.Unlock()
+}
+
+func (s *Stats) GetCurrentURL() string {
+	s.urlMu.RLock()
+	defer s.urlMu.RUnlock()
+	return s.currentURL
 }

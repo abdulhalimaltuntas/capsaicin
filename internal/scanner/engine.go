@@ -15,11 +15,13 @@ import (
 )
 
 type Engine struct {
-	config   config.Config
-	client   *transport.Client
-	calCache *detection.CalibrationCache
-	rng      *rand.Rand
-	rngMu    sync.Mutex
+	config     config.Config
+	client     *transport.Client
+	calCache   *detection.CalibrationCache
+	rng        *rand.Rand
+	rngMu      sync.Mutex
+	stats      *Stats
+	statsReady chan struct{}
 }
 
 func NewEngine(cfg config.Config) *Engine {
@@ -31,11 +33,19 @@ func NewEngine(cfg config.Config) *Engine {
 	)
 
 	return &Engine{
-		config:   cfg,
-		client:   client,
-		calCache: detection.NewCalibrationCache(),
-		rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
+		config:     cfg,
+		client:     client,
+		calCache:   detection.NewCalibrationCache(),
+		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
+		statsReady: make(chan struct{}),
 	}
+}
+
+// WaitForStats blocks until the scan engine has initialized its Stats.
+// Safe to call from a different goroutine than RunWithEvents.
+func (e *Engine) WaitForStats() *Stats {
+	<-e.statsReady
+	return e.stats
 }
 
 func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
@@ -43,6 +53,14 @@ func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
 }
 
 func (e *Engine) RunContext(ctx context.Context, targets []string) ([]Result, *Stats, error) {
+	return e.RunWithEvents(ctx, targets, nil)
+}
+
+func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh chan<- ScanEvent) ([]Result, *Stats, error) {
+	if eventCh != nil {
+		defer close(eventCh)
+	}
+
 	words, err := loadWordlist(e.config.Wordlist)
 	if err != nil {
 		return nil, nil, err
@@ -50,6 +68,10 @@ func (e *Engine) RunContext(ctx context.Context, targets []string) ([]Result, *S
 
 	initialTaskCount := int64(len(targets) * len(words) * (1 + len(e.config.Extensions)))
 	stats := NewStats(initialTaskCount)
+
+	// Expose stats to callers waiting on WaitForStats().
+	e.stats = stats
+	close(e.statsReady)
 
 	for _, target := range targets {
 		select {
@@ -83,6 +105,14 @@ func (e *Engine) RunContext(ctx context.Context, targets []string) ([]Result, *S
 				resultsMutex.Lock()
 				results = append(results, r)
 				resultsMutex.Unlock()
+
+				// Emit live result event to UI.
+				if eventCh != nil {
+					select {
+					case eventCh <- ScanEvent{Type: EventResultFound, Result: &r}:
+					case <-ctx.Done():
+					}
+				}
 			}
 
 			if result.WAFDetected != "" {
@@ -167,6 +197,7 @@ func (e *Engine) RunContext(ctx context.Context, targets []string) ([]Result, *S
 			&taskWg,
 			e.rng,
 			&e.rngMu,
+			eventCh,
 		)
 	}
 
@@ -231,4 +262,12 @@ func loadWordlist(path string) ([]string, error) {
 	}
 
 	return words, scanner.Err()
+}
+
+func CountWordlist(path string) (int, error) {
+	words, err := loadWordlist(path)
+	if err != nil {
+		return 0, err
+	}
+	return len(words), nil
 }

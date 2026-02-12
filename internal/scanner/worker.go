@@ -40,6 +40,7 @@ func worker(
 	taskWg *sync.WaitGroup,
 	rng *rand.Rand,
 	rngMu *sync.Mutex,
+	eventCh chan<- ScanEvent,
 ) {
 	defer func() {
 		done <- struct{}{}
@@ -57,6 +58,17 @@ func worker(
 		}
 
 		url := strings.TrimSuffix(task.TargetURL, "/") + "/" + strings.TrimPrefix(task.Path, "/")
+
+		// Track the current URL for live display.
+		stats.SetCurrentURL(url)
+
+		// Emit URL-trying event for live UI.
+		if eventCh != nil {
+			select {
+			case eventCh <- ScanEvent{Type: EventURLTrying, URL: url}:
+			default: // non-blocking; UI may be slow
+			}
+		}
 
 		userAgent := getRandomUserAgent(rng, rngMu)
 		result, bodyContent, err := makeRequest(ctx, url, "GET", userAgent, cfg, client)

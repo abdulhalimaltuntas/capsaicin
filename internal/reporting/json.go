@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/capsaicin/scanner/internal/scanner"
@@ -196,8 +195,6 @@ func CountByStatus(results []scanner.Result) map[string]int {
 			counts["waf"]++
 		}
 	}
-
-	_ = strings.TrimSpace
 
 	return counts
 }
