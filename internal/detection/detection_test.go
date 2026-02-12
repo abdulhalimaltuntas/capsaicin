@@ -1,6 +1,7 @@
 package detection
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -278,7 +279,7 @@ func TestCalibration(t *testing.T) {
 	cache := NewCalibrationCache()
 	client := &http.Client{}
 
-	sigs := PerformCalibration(server.URL, client, nil, cache)
+	sigs := PerformCalibration(context.Background(), server.URL, client, nil, cache)
 
 	if len(sigs) == 0 {
 		t.Error("expected calibration signatures")
@@ -302,7 +303,7 @@ func TestCalibration_CacheHit(t *testing.T) {
 	}
 	cache.Set("http://cached.example.com", preloaded)
 
-	sigs := PerformCalibration("http://cached.example.com", &http.Client{}, nil, cache)
+	sigs := PerformCalibration(context.Background(), "http://cached.example.com", &http.Client{}, nil, cache)
 
 	if len(sigs) != 1 {
 		t.Errorf("expected 1 cached signature, got %d", len(sigs))
@@ -321,7 +322,7 @@ func TestCalibration_WithCustomHeaders(t *testing.T) {
 	cache := NewCalibrationCache()
 	headers := map[string]string{"Authorization": "Bearer test123"}
 
-	PerformCalibration(server.URL, &http.Client{}, headers, cache)
+	PerformCalibration(context.Background(), server.URL, &http.Client{}, headers, cache)
 
 	if receivedHeaders["Authorization"] != "Bearer test123" {
 		t.Errorf("expected Authorization header, got %q", receivedHeaders["Authorization"])
@@ -335,7 +336,7 @@ func TestCalibration_ServerError(t *testing.T) {
 	defer server.Close()
 
 	cache := NewCalibrationCache()
-	sigs := PerformCalibration(server.URL, &http.Client{}, nil, cache)
+	sigs := PerformCalibration(context.Background(), server.URL, &http.Client{}, nil, cache)
 
 	if len(sigs) == 0 {
 		t.Error("expected signatures even for 500 responses")
@@ -370,18 +371,21 @@ func TestMatchesSignature(t *testing.T) {
 		name       string
 		statusCode int
 		size       int
+		wordCount  int
+		lineCount  int
 		expected   bool
 	}{
-		{"exact match", 404, 100, true},
-		{"within threshold", 404, 102, true},
-		{"different status", 200, 100, false},
-		{"size too different", 404, 200, false},
-		{"zero size signature skipped", 404, 0, false},
+		{"exact match", 404, 100, 10, 5, true},
+		{"within size threshold", 404, 102, 8, 3, true},
+		{"different status", 200, 100, 10, 5, false},
+		{"size and content different", 404, 200, 50, 20, false},
+		{"word+line match but size differs", 404, 200, 10, 5, true},
+		{"zero size signature skipped", 404, 0, 0, 0, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := MatchesSignature(tt.statusCode, tt.size, signatures)
+			result := MatchesSignature(tt.statusCode, tt.size, tt.wordCount, tt.lineCount, signatures)
 			if result != tt.expected {
 				t.Errorf("expected %v, got %v", tt.expected, result)
 			}
@@ -390,12 +394,12 @@ func TestMatchesSignature(t *testing.T) {
 }
 
 func TestMatchesSignature_EmptySignatures(t *testing.T) {
-	result := MatchesSignature(404, 100, nil)
+	result := MatchesSignature(404, 100, 0, 0, nil)
 	if result {
 		t.Error("expected false for nil signatures")
 	}
 
-	result = MatchesSignature(404, 100, []ResponseSignature{})
+	result = MatchesSignature(404, 100, 0, 0, []ResponseSignature{})
 	if result {
 		t.Error("expected false for empty signatures")
 	}
@@ -406,7 +410,7 @@ func TestMatchesSignature_ZeroSizeSignature(t *testing.T) {
 		{StatusCode: 404, Size: 0},
 	}
 
-	result := MatchesSignature(404, 100, signatures)
+	result := MatchesSignature(404, 100, 0, 0, signatures)
 	if result {
 		t.Error("expected false when signature size is 0")
 	}
@@ -459,6 +463,6 @@ func FuzzMatchesSignature(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, statusCode int, size int) {
-		MatchesSignature(statusCode, size, signatures)
+		MatchesSignature(statusCode, size, 10, 5, signatures)
 	})
 }

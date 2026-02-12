@@ -46,7 +46,7 @@ func BenchmarkMatchesSignature(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		MatchesSignature(404, 101, signatures)
+		MatchesSignature(404, 101, 10, 5, signatures)
 	}
 }
 

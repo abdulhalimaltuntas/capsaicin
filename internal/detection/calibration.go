@@ -1,6 +1,7 @@
 package detection
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -54,7 +55,7 @@ func calRandIntn(n int) int {
 	return calRng.rng.Intn(n)
 }
 
-func PerformCalibration(targetURL string, client *http.Client, headers map[string]string, cache *CalibrationCache) []ResponseSignature {
+func PerformCalibration(ctx context.Context, targetURL string, client *http.Client, headers map[string]string, cache *CalibrationCache) []ResponseSignature {
 	if sigs, ok := cache.Get(targetURL); ok {
 		return sigs
 	}
@@ -67,8 +68,13 @@ func PerformCalibration(targetURL string, client *http.Client, headers map[strin
 	}
 
 	for _, path := range randomPaths {
+		select {
+		case <-ctx.Done():
+			return signatures
+		default:
+		}
 		url := strings.TrimSuffix(targetURL, "/") + path
-		sig := fetchSignature(url, client, headers)
+		sig := fetchSignature(ctx, url, client, headers)
 		if sig != nil {
 			signatures = append(signatures, *sig)
 		}
@@ -78,8 +84,8 @@ func PerformCalibration(targetURL string, client *http.Client, headers map[strin
 	return signatures
 }
 
-func fetchSignature(url string, client *http.Client, headers map[string]string) *ResponseSignature {
-	req, err := http.NewRequest("GET", url, nil)
+func fetchSignature(ctx context.Context, url string, client *http.Client, headers map[string]string) *ResponseSignature {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil
 	}
@@ -109,14 +115,22 @@ func fetchSignature(url string, client *http.Client, headers map[string]string) 
 	}
 }
 
-func MatchesSignature(statusCode, size int, signatures []ResponseSignature) bool {
+func MatchesSignature(statusCode, size, wordCount, lineCount int, signatures []ResponseSignature) bool {
 	for _, sig := range signatures {
-		if statusCode == sig.StatusCode {
-			if sig.Size == 0 {
-				continue
-			}
-			sizeDiff := float64(abs(size-sig.Size)) / float64(sig.Size)
-			if sizeDiff < 0.05 {
+		if statusCode != sig.StatusCode {
+			continue
+		}
+		if sig.Size == 0 {
+			continue
+		}
+		sizeDiff := float64(abs(size-sig.Size)) / float64(sig.Size)
+		if sizeDiff < 0.05 {
+			return true
+		}
+		if sig.WordCount > 0 && sig.LineCount > 0 {
+			wcDiff := float64(abs(wordCount-sig.WordCount)) / float64(sig.WordCount)
+			lcDiff := float64(abs(lineCount-sig.LineCount)) / float64(sig.LineCount)
+			if wcDiff < 0.10 && lcDiff < 0.10 {
 				return true
 			}
 		}

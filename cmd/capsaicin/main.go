@@ -60,6 +60,10 @@ func main() {
 		sig := <-sigChan
 		fmt.Fprintf(os.Stderr, "\n  [!] Received signal %s, shutting down gracefully...\n", sig)
 		cancel()
+		// Second signal → force exit
+		sig = <-sigChan
+		fmt.Fprintf(os.Stderr, "\n  [!] Received second signal %s, force exiting...\n", sig)
+		os.Exit(1)
 	}()
 
 	scanStart := time.Now()
@@ -82,7 +86,11 @@ func main() {
 	}()
 
 	// Wait for engine to initialize stats, then start live UI.
-	stats := engine.WaitForStats()
+	stats := engine.WaitForStatsCtx(ctx)
+	if stats == nil {
+		fmt.Fprintln(os.Stderr, "  [!] Scan cancelled before initialization")
+		os.Exit(0)
+	}
 	uiCtx, uiCancel := context.WithCancel(ctx)
 	uiDone := make(chan struct{})
 	go func() {

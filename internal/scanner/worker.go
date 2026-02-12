@@ -20,11 +20,8 @@ var userAgents = []string{
 	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
-func getRandomUserAgent(rng *rand.Rand, mu *sync.Mutex) string {
-	mu.Lock()
-	idx := rng.Intn(len(userAgents))
-	mu.Unlock()
-	return userAgents[idx]
+func getRandomUserAgent(rng *rand.Rand) string {
+	return userAgents[rng.Intn(len(userAgents))]
 }
 
 func worker(
@@ -39,7 +36,6 @@ func worker(
 	done chan<- struct{},
 	taskWg *sync.WaitGroup,
 	rng *rand.Rand,
-	rngMu *sync.Mutex,
 	eventCh chan<- ScanEvent,
 ) {
 	defer func() {
@@ -70,7 +66,7 @@ func worker(
 			}
 		}
 
-		userAgent := getRandomUserAgent(rng, rngMu)
+		userAgent := getRandomUserAgent(rng)
 		result, bodyContent, err := makeRequest(ctx, url, "GET", userAgent, cfg, client)
 		stats.IncrementProcessed()
 
@@ -92,7 +88,7 @@ func worker(
 		consecutiveErrors = 0
 
 		signatures, _ := calCache.Get(task.TargetURL)
-		if detection.MatchesSignature(result.StatusCode, result.Size, signatures) {
+		if detection.MatchesSignature(result.StatusCode, result.Size, result.WordCount, result.LineCount, signatures) {
 			taskWg.Done()
 			continue
 		}

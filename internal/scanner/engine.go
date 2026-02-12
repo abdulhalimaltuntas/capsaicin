@@ -18,8 +18,6 @@ type Engine struct {
 	config     config.Config
 	client     *transport.Client
 	calCache   *detection.CalibrationCache
-	rng        *rand.Rand
-	rngMu      sync.Mutex
 	stats      *Stats
 	statsReady chan struct{}
 }
@@ -36,7 +34,6 @@ func NewEngine(cfg config.Config) *Engine {
 		config:     cfg,
 		client:     client,
 		calCache:   detection.NewCalibrationCache(),
-		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
 		statsReady: make(chan struct{}),
 	}
 }
@@ -46,6 +43,17 @@ func NewEngine(cfg config.Config) *Engine {
 func (e *Engine) WaitForStats() *Stats {
 	<-e.statsReady
 	return e.stats
+}
+
+// WaitForStatsCtx blocks until the scan engine has initialized its Stats,
+// or the context is cancelled. Returns nil if context is cancelled first.
+func (e *Engine) WaitForStatsCtx(ctx context.Context) *Stats {
+	select {
+	case <-e.statsReady:
+		return e.stats
+	case <-ctx.Done():
+		return nil
+	}
 }
 
 func (e *Engine) Run(targets []string) ([]Result, *Stats, error) {
@@ -79,7 +87,7 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 			return nil, stats, ctx.Err()
 		default:
 		}
-		detection.PerformCalibration(target, e.client.HTTPClient(), e.config.CustomHeaders, e.calCache)
+		detection.PerformCalibration(ctx, target, e.client.HTTPClient(), e.config.CustomHeaders, e.calCache)
 	}
 
 	var results []Result
@@ -184,6 +192,7 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 
 	workerDone := make(chan struct{}, e.config.Threads)
 	for i := 0; i < e.config.Threads; i++ {
+		workerRng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 		go worker(
 			ctx,
 			taskChan,
@@ -195,8 +204,7 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 			e.calCache,
 			workerDone,
 			&taskWg,
-			e.rng,
-			&e.rngMu,
+			workerRng,
 			eventCh,
 		)
 	}
@@ -204,12 +212,18 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 	taskWg.Add(int(initialTaskCount))
 
 	go func() {
+		sentCount := int64(0)
 		for _, target := range targets {
 			for _, word := range words {
 				task := Task{TargetURL: target, Path: word, Depth: 1}
 				select {
 				case taskChan <- task:
+					sentCount++
 				case <-ctx.Done():
+					remaining := initialTaskCount - sentCount
+					if remaining > 0 {
+						taskWg.Add(int(-remaining))
+					}
 					return
 				}
 
@@ -217,7 +231,12 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 					taskWithExt := Task{TargetURL: target, Path: word + ext, Depth: 1}
 					select {
 					case taskChan <- taskWithExt:
+						sentCount++
 					case <-ctx.Done():
+						remaining := initialTaskCount - sentCount
+						if remaining > 0 {
+							taskWg.Add(int(-remaining))
+						}
 						return
 					}
 				}
@@ -252,7 +271,12 @@ func loadWordlist(path string) ([]string, error) {
 	}
 	defer file.Close()
 
-	var words []string
+	estimatedLines := 1024
+	if info, err := file.Stat(); err == nil && info.Size() > 0 {
+		estimatedLines = int(info.Size() / 8)
+	}
+
+	words := make([]string, 0, estimatedLines)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		word := strings.TrimSpace(scanner.Text())

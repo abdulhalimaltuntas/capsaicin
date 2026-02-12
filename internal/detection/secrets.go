@@ -114,18 +114,21 @@ func ShannonEntropy(s string) float64 {
 		return 0
 	}
 
-	freq := make(map[rune]float64)
-	for _, c := range s {
-		freq[c]++
+	var freq [256]int
+	total := 0
+	for i := 0; i < len(s); i++ {
+		freq[s[i]]++
+		total++
 	}
 
 	entropy := 0.0
-	length := float64(len([]rune(s)))
+	ft := float64(total)
 	for _, count := range freq {
-		p := count / length
-		if p > 0 {
-			entropy -= p * math.Log2(p)
+		if count == 0 {
+			continue
 		}
+		p := float64(count) / ft
+		entropy -= p * math.Log2(p)
 	}
 
 	return entropy
@@ -145,27 +148,28 @@ func DetectSecretsDetailed(content string) []SecretMatch {
 	secretMap := make(map[string]bool)
 
 	for _, pattern := range Patterns {
-		if pattern.Pattern.MatchString(content) {
-			if secretMap[pattern.Name] {
+		match := pattern.Pattern.FindString(content)
+		if match == "" {
+			continue
+		}
+
+		if secretMap[pattern.Name] {
+			continue
+		}
+
+		if pattern.MinEntropy > 0 {
+			valueMatch := extractValue(match)
+			if ShannonEntropy(valueMatch) < pattern.MinEntropy {
 				continue
 			}
-
-			match := pattern.Pattern.FindString(content)
-
-			if pattern.MinEntropy > 0 {
-				valueMatch := extractValue(match)
-				if ShannonEntropy(valueMatch) < pattern.MinEntropy {
-					continue
-				}
-			}
-
-			secretMap[pattern.Name] = true
-			foundSecrets = append(foundSecrets, SecretMatch{
-				Name:     pattern.Name,
-				Severity: pattern.Severity,
-				Redacted: RedactSecret(match),
-			})
 		}
+
+		secretMap[pattern.Name] = true
+		foundSecrets = append(foundSecrets, SecretMatch{
+			Name:     pattern.Name,
+			Severity: pattern.Severity,
+			Redacted: RedactSecret(match),
+		})
 	}
 
 	return foundSecrets
