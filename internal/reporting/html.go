@@ -63,6 +63,7 @@ func GenerateHTML(results []scanner.Result, filename string) error {
 		.badge-critical { background: #dc3545; color: white; }
 		.badge-secret { background: #ffc107; color: #333; }
 		.badge-waf { background: #6f42c1; color: white; }
+		.badge-tech { background: #17a2b8; color: white; }
 		code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 13px; }
 	</style>
 </head>
@@ -170,6 +171,9 @@ func GenerateHTML(results []scanner.Result, filename string) error {
 		}
 		if result.WAFDetected != "" {
 			badges += fmt.Sprintf(`<span class="badge badge-waf">WAF: %s</span>`, result.WAFDetected)
+		}
+		if len(result.Technologies) > 0 {
+			badges += fmt.Sprintf(`<span class="badge badge-tech">%s</span>`, strings.Join(result.Technologies, ", "))
 		}
 
 		details := badges

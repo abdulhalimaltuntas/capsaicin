@@ -21,7 +21,8 @@ type Result struct {
 	Server      string   `json:"server,omitempty"`
 	PoweredBy   string   `json:"powered_by,omitempty"`
 	UserAgent   string   `json:"user_agent"`
-	SecretFound bool     `json:"secret_found"`
-	SecretTypes []string `json:"secret_types,omitempty"`
-	WAFDetected string   `json:"waf_detected,omitempty"`
+	SecretFound  bool     `json:"secret_found"`
+	SecretTypes  []string `json:"secret_types,omitempty"`
+	WAFDetected  string   `json:"waf_detected,omitempty"`
+	Technologies []string `json:"technologies,omitempty"`
 }

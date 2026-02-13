@@ -67,7 +67,7 @@ func worker(
 		}
 
 		userAgent := getRandomUserAgent(rng)
-		result, bodyContent, err := makeRequest(ctx, url, "GET", userAgent, cfg, client)
+		result, bodyContent, resp, err := makeRequest(ctx, url, "GET", userAgent, cfg, client)
 		stats.IncrementProcessed()
 
 		if err != nil {
@@ -101,7 +101,7 @@ func worker(
 					goto done405
 				default:
 				}
-				methodResult, methodBody, err := makeRequest(ctx, url, method, userAgent, cfg, client)
+				methodResult, methodBody, methodResp, err := makeRequest(ctx, url, method, userAgent, cfg, client)
 				if err == nil && (methodResult.StatusCode == 200 || methodResult.StatusCode == 201 || methodResult.StatusCode == 204) {
 					methodResult.Method = method
 					methodResult.Critical = true
@@ -110,6 +110,10 @@ func worker(
 						methodResult.SecretFound = true
 						methodResult.SecretTypes = secrets
 						stats.IncrementSecrets()
+					}
+
+					if techs := detection.DetectTechNames(methodResp, methodBody); len(techs) > 0 {
+						methodResult.Technologies = techs
 					}
 
 					stats.IncrementFound()
@@ -132,19 +136,26 @@ func worker(
 				}
 			}
 
-			if !cfg.SafeMode && (result.StatusCode == 403 || result.StatusCode == 401) {
-				bypassResult, bypassBody := attemptBypass(ctx, url, userAgent, cfg, client)
-				if bypassResult != nil && (bypassResult.StatusCode == 200 || bypassResult.StatusCode == 302) {
-					bypassResult.Critical = true
+			// Detect technologies from response headers, cookies, and body.
+			if resp != nil {
+				if techs := detection.DetectTechNames(resp, bodyContent); len(techs) > 0 {
+					result.Technologies = techs
+				}
+			}
 
-					if secrets := detection.DetectSecrets(bypassBody); len(secrets) > 0 {
-						bypassResult.SecretFound = true
-						bypassResult.SecretTypes = secrets
+			if !cfg.SafeMode && (result.StatusCode == 403 || result.StatusCode == 401) {
+				bypassResult := attemptBypassStrategies(ctx, url, userAgent, cfg, client)
+				if bypassResult != nil && bypassResult.Result != nil {
+					bypassResult.Result.Critical = true
+
+					if secrets := detection.DetectSecrets(bypassResult.Body); len(secrets) > 0 {
+						bypassResult.Result.SecretFound = true
+						bypassResult.Result.SecretTypes = secrets
 						stats.IncrementSecrets()
 					}
 
-					AssignSeverityAndConfidence(bypassResult)
-					results <- *bypassResult
+					AssignSeverityAndConfidence(bypassResult.Result)
+					results <- *bypassResult.Result
 				}
 			}
 
@@ -170,10 +181,10 @@ func worker(
 	}
 }
 
-func makeRequest(ctx context.Context, url, method, userAgent string, cfg config.Config, client *transport.Client) (*Result, string, error) {
+func makeRequest(ctx context.Context, url, method, userAgent string, cfg config.Config, client *transport.Client) (*Result, string, *http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
 	req.Header.Set("User-Agent", userAgent)
@@ -184,7 +195,7 @@ func makeRequest(ctx context.Context, url, method, userAgent string, cfg config.
 
 	resp, body, err := client.DoContext(ctx, req, cfg.RateLimit)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
 	bodyContent := string(body)
@@ -208,60 +219,7 @@ func makeRequest(ctx context.Context, url, method, userAgent string, cfg config.
 		result.WAFDetected = wafName
 	}
 
-	return result, bodyContent, nil
-}
-
-func attemptBypass(ctx context.Context, url, userAgent string, cfg config.Config, client *transport.Client) (*Result, string) {
-	bypassHeaders := map[string]string{
-		"X-Forwarded-For":           "127.0.0.1",
-		"X-Original-URL":            extractPath(url),
-		"X-Rewrite-URL":             extractPath(url),
-		"X-Custom-IP-Authorization": "127.0.0.1",
-		"Client-IP":                 "127.0.0.1",
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, ""
-	}
-
-	req.Header.Set("User-Agent", userAgent)
-
-	for key, value := range cfg.CustomHeaders {
-		req.Header.Set(key, value)
-	}
-
-	for key, value := range bypassHeaders {
-		req.Header.Set(key, value)
-	}
-
-	resp, body, err := client.DoContext(ctx, req, cfg.RateLimit)
-	if err != nil {
-		return nil, ""
-	}
-
-	bodyContent := string(body)
-	server := resp.Header.Get("Server")
-	poweredBy := resp.Header.Get("X-Powered-By")
-
-	result := &Result{
-		URL:        url + " [BYPASS]",
-		StatusCode: resp.StatusCode,
-		Size:       len(body),
-		WordCount:  len(strings.Fields(bodyContent)),
-		LineCount:  strings.Count(bodyContent, "\n") + 1,
-		Method:     "GET+BYPASS",
-		Timestamp:  time.Now().Format(time.RFC3339),
-		Server:     server,
-		PoweredBy:  poweredBy,
-		UserAgent:  userAgent,
-	}
-
-	if wafName := detection.DetectWAF(resp); wafName != "" {
-		result.WAFDetected = wafName
-	}
-
-	return result, bodyContent
+	return result, bodyContent, resp, nil
 }
 
 func isDirectory(result *Result) bool {

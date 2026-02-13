@@ -107,6 +107,10 @@ func PrintResult(result scanner.Result) {
 		tags = append(tags, fmt.Sprintf("%s%s%s%s", dim, cyan, result.Method, reset))
 	}
 
+	if len(result.Technologies) > 0 {
+		tags = append(tags, fmt.Sprintf("%s%s[%s]%s", dim, blue, strings.Join(result.Technologies, ", "), reset))
+	}
+
 	sizeStr := formatSize(result.Size)
 
 	tagStr := ""
@@ -144,6 +148,9 @@ func printResultInline(result *scanner.Result) {
 	}
 	if result.Method != "GET" {
 		tags = append(tags, fmt.Sprintf("%s%s%s%s", dim, cyan, result.Method, reset))
+	}
+	if len(result.Technologies) > 0 {
+		tags = append(tags, fmt.Sprintf("%s%s[%s]%s", dim, blue, strings.Join(result.Technologies, ", "), reset))
 	}
 
 	sizeStr := formatSize(result.Size)
