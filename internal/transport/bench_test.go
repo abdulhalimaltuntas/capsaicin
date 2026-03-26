@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/capsaicin/scanner/internal/config"
 )
 
 func BenchmarkClientDo_Success(b *testing.B) {
@@ -14,7 +16,7 @@ func BenchmarkClientDo_Success(b *testing.B) {
 	}))
 	defer server.Close()
 
-	client := NewClient(10, 0, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -24,7 +26,7 @@ func BenchmarkClientDo_Success(b *testing.B) {
 }
 
 func BenchmarkRateLimiter_GetOrCreate(b *testing.B) {
-	client := NewClient(10, 10, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

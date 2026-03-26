@@ -80,6 +80,16 @@ var WAFSignatures = []WAFSignature{
 		Name:         "Varnish",
 		CustomHeader: "X-Varnish",
 	},
+	{
+		Name:          "Incapsula",
+		CookiePattern: "incap_ses",
+		ServerHeader:  "Incapsula",
+	},
+	{
+		Name:          "DataDome",
+		ServerHeader:  "DataDome",
+		CookiePattern: "datadome",
+	},
 }
 
 func DetectWAF(resp *http.Response) string {
@@ -122,6 +132,10 @@ func DetectWAFFromBody(body string, statusCode int) string {
 		"Powered by Wordfence":          "Wordfence",
 		"ModSecurity":                   "ModSecurity",
 		"<title>403 Forbidden</title>":  "Generic WAF",
+		"cf-turnstile":                  "Cloudflare Turnstile",
+		"g-recaptcha":                   "reCAPTCHA",
+		"datadome":                      "DataDome",
+		"incapsula incident id":         "Incapsula",
 	}
 
 	lowerBody := strings.ToLower(body)

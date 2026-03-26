@@ -49,7 +49,8 @@ func TestEngineBasicScan(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, stats, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -107,7 +108,8 @@ func TestEngineRecursiveScan(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, stats, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -126,7 +128,13 @@ func TestEngineRecursiveScan(t *testing.T) {
 func TestEngineWAFDetection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "cloudflare")
-		w.WriteHeader(200)
+		if r.URL.Path == "/test" {
+			w.WriteHeader(200)
+			// Distinctive body so calibration doesn't filter this as noise.
+			w.Write([]byte("This is a real page with unique content that differs from error pages significantly"))
+			return
+		}
+		w.WriteHeader(404)
 	}))
 	defer server.Close()
 
@@ -141,7 +149,8 @@ func TestEngineWAFDetection(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, stats, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -325,7 +334,8 @@ func TestEngine405MethodFuzzing(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -373,7 +383,8 @@ func TestEngineBypassAttempt(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -417,8 +428,9 @@ func TestEngineCustomHeaders(t *testing.T) {
 		CustomHeaders: map[string]string{"Authorization": "Bearer test-token"},
 	}
 
-	engine := NewEngine(cfg)
-	_, _, err := engine.Run([]string{server.URL})
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
+	_, _, err = engine.Run([]string{server.URL})
 
 	if err != nil {
 		t.Fatalf("scan failed: %v", err)
@@ -454,7 +466,8 @@ func TestEngineWithExtensions(t *testing.T) {
 		Extensions:    []string{".php", ".html"},
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -525,7 +538,8 @@ func TestEngineMultipleTargets(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, stats, err := engine.Run([]string{server1.URL, server2.URL})
 
 	if err != nil {
@@ -571,7 +585,8 @@ func TestEngineSafeMode_NoBypass(t *testing.T) {
 		SafeMode:      true,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -618,8 +633,9 @@ func TestEngineSafeMode_NoMethodFuzzing(t *testing.T) {
 		SafeMode:      true,
 	}
 
-	engine := NewEngine(cfg)
-	_, _, err := engine.Run([]string{server.URL})
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
+	_, _, err = engine.Run([]string{server.URL})
 
 	if err != nil {
 		t.Fatalf("scan failed: %v", err)
@@ -654,7 +670,8 @@ func TestEngineResultsHaveSeverity(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+if err != nil { t.Fatalf("engine failed: %v", err) }
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {

@@ -107,6 +107,56 @@ var Patterns = []SecretPattern{
 		Severity:   SeverityMedium,
 		MinEntropy: 3.0,
 	},
+	{
+		Name:     "OpenAI API Key",
+		Pattern:  regexp.MustCompile(`sk-[a-zA-Z0-9]{48}`),
+		Severity: SeverityCritical,
+	},
+	{
+		Name:     "Telegram Bot Token",
+		Pattern:  regexp.MustCompile(`(?i)(bot)?[0-9]{9,}:[a-zA-Z0-9_-]{35}`),
+		Severity: SeverityHigh,
+	},
+	{
+		Name:     "Discord Webhook",
+		Pattern:  regexp.MustCompile(`https://discord(?:app)?\.com/api/webhooks/[0-9]{17,19}/[a-zA-Z0-9_-]{68}`),
+		Severity: SeverityCritical,
+	},
+	{
+		Name:     "Discord Bot Token",
+		Pattern:  regexp.MustCompile(`[MNO][a-zA-Z0-9_-]{23,25}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27}`),
+		Severity: SeverityCritical,
+	},
+	{
+		Name:     "Slack Webhook",
+		Pattern:  regexp.MustCompile(`https://hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}`),
+		Severity: SeverityHigh,
+	},
+	{
+		Name:     "Square Access Token",
+		Pattern:  regexp.MustCompile(`sqOatp-[0-9A-Za-z\-_]{22,43}`),
+		Severity: SeverityHigh,
+	},
+	{
+		Name:     "GitLab Personal Access Token",
+		Pattern:  regexp.MustCompile(`glpat-[0-9a-zA-Z\-]{20}`),
+		Severity: SeverityCritical,
+	},
+	{
+		Name:     "Shopify Access Token",
+		Pattern:  regexp.MustCompile(`shpat_[a-fA-F0-9]{32}`),
+		Severity: SeverityHigh,
+	},
+	{
+		Name:     "NPM Access Token",
+		Pattern:  regexp.MustCompile(`npm_[a-zA-Z0-9]{36}`),
+		Severity: SeverityCritical,
+	},
+	{
+		Name:     "SendGrid API Key",
+		Pattern:  regexp.MustCompile(`SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}`),
+		Severity: SeverityHigh,
+	},
 }
 
 func ShannonEntropy(s string) float64 {

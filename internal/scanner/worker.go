@@ -87,10 +87,19 @@ func worker(
 
 		consecutiveErrors = 0
 
-		signatures, _ := calCache.Get(task.TargetURL)
-		if detection.MatchesSignature(result.StatusCode, result.Size, result.WordCount, result.LineCount, signatures) {
-			taskWg.Done()
-			continue
+		// O(1) baseline filter — primary path.
+		if baseline, ok := calCache.GetBaseline(task.TargetURL); ok {
+			if detection.MatchesBaseline(result.StatusCode, result.Size, result.WordCount, result.LineCount, baseline) {
+				taskWg.Done()
+				continue
+			}
+		} else {
+			// Legacy fallback for targets calibrated before restart.
+			signatures, _ := calCache.Get(task.TargetURL)
+			if detection.MatchesSignature(result.StatusCode, result.Size, result.WordCount, result.LineCount, signatures) {
+				taskWg.Done()
+				continue
+			}
 		}
 
 		if result.StatusCode == 405 && !cfg.SafeMode {
@@ -133,7 +142,7 @@ func worker(
 			}
 
 			if !cfg.SafeMode && (result.StatusCode == 403 || result.StatusCode == 401) {
-				bypassResult, bypassBody := attemptBypass(ctx, url, userAgent, cfg, client)
+				bypassResult, bypassBody := attemptBypass(ctx, url, result.Method, userAgent, cfg, client)
 				if bypassResult != nil && (bypassResult.StatusCode == 200 || bypassResult.StatusCode == 302) {
 					bypassResult.Critical = true
 
@@ -206,21 +215,32 @@ func makeRequest(ctx context.Context, url, method, userAgent string, cfg config.
 
 	if wafName := detection.DetectWAF(resp); wafName != "" {
 		result.WAFDetected = wafName
+	} else if wafName := detection.DetectWAFFromBody(bodyContent, resp.StatusCode); wafName != "" {
+		result.WAFDetected = wafName
 	}
 
 	return result, bodyContent, nil
 }
 
-func attemptBypass(ctx context.Context, url, userAgent string, cfg config.Config, client *transport.Client) (*Result, string) {
+func attemptBypass(ctx context.Context, url, method, userAgent string, cfg config.Config, client *transport.Client) (*Result, string) {
 	bypassHeaders := map[string]string{
 		"X-Forwarded-For":           "127.0.0.1",
 		"X-Original-URL":            extractPath(url),
 		"X-Rewrite-URL":             extractPath(url),
 		"X-Custom-IP-Authorization": "127.0.0.1",
 		"Client-IP":                 "127.0.0.1",
+		"X-Originating-IP":          "127.0.0.1",
+		"X-Remote-IP":               "127.0.0.1",
+		"X-Remote-Addr":             "127.0.0.1",
+		"X-Host":                    "127.0.0.1",
+		"X-Forwarded-Host":          "127.0.0.1",
+		"X-Client-IP":               "127.0.0.1",
+		"True-Client-IP":            "127.0.0.1",
+		"X-Real-IP":                 "127.0.0.1",
+		"Forwarded":                 "for=127.0.0.1",
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return nil, ""
 	}
@@ -258,6 +278,8 @@ func attemptBypass(ctx context.Context, url, userAgent string, cfg config.Config
 	}
 
 	if wafName := detection.DetectWAF(resp); wafName != "" {
+		result.WAFDetected = wafName
+	} else if wafName := detection.DetectWAFFromBody(bodyContent, resp.StatusCode); wafName != "" {
 		result.WAFDetected = wafName
 	}
 

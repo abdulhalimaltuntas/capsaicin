@@ -13,17 +13,17 @@ func TestValidate_NoTargets(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingWordlist(t *testing.T) {
+func TestValidateConfig_MissingWordlist(t *testing.T) {
 	cfg := &Config{Wordlist: "", LogLevel: "info"}
-	err := Validate(cfg, []string{"http://example.com"})
+	err := ValidateConfig(cfg)
 	if err == nil {
 		t.Error("expected error for missing wordlist")
 	}
 }
 
-func TestValidate_WordlistNotFound(t *testing.T) {
+func TestValidateConfig_WordlistNotFound(t *testing.T) {
 	cfg := &Config{Wordlist: "/nonexistent/path/wordlist.txt", LogLevel: "info"}
-	err := Validate(cfg, []string{"http://example.com"})
+	err := ValidateConfig(cfg)
 	if err == nil {
 		t.Error("expected error for nonexistent wordlist")
 	}
@@ -37,7 +37,21 @@ func TestValidate_URLNormalization(t *testing.T) {
 	defer os.Remove(wordlist.Name())
 	wordlist.Close()
 
-	cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: 50, Timeout: 10}
+	cfg := &Config{
+		Wordlist: wordlist.Name(),
+		LogLevel: "info",
+		Threads:  50,
+		Timeout:  10,
+		Method:   "GET",
+		FuzzMode: "sniper",
+		TLSImpersonate: "random",
+		JitterProfile: "moderate",
+		ProxyStrategy: "random",
+		OutputFormat: "jsonl",
+		MaxResponseMB: 10,
+		ExtractDepth: 2,
+		RecalInterval: 500,
+	}
 	targets := []string{"example.com", "https://secure.com", "http://plain.com"}
 	err = Validate(cfg, targets)
 	if err != nil {
@@ -55,7 +69,7 @@ func TestValidate_URLNormalization(t *testing.T) {
 	}
 }
 
-func TestValidate_ValidConfig(t *testing.T) {
+func TestValidateConfig_ValidConfig(t *testing.T) {
 	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -63,14 +77,28 @@ func TestValidate_ValidConfig(t *testing.T) {
 	defer os.Remove(wordlist.Name())
 	wordlist.Close()
 
-	cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: 50, Timeout: 10}
-	err = Validate(cfg, []string{"http://example.com"})
+	cfg := &Config{
+		Wordlist:       wordlist.Name(),
+		LogLevel:       "info",
+		Threads:        50,
+		Timeout:        10,
+		Method:         "GET",
+		FuzzMode:       "dynamic",
+		TLSImpersonate: "chrome",
+		JitterProfile:  "stealth",
+		ProxyStrategy:  "round_robin",
+		OutputFormat:   "json",
+		MaxResponseMB:  10,
+		ExtractDepth:   2,
+		RecalInterval:  500,
+	}
+	err = ValidateConfig(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestValidate_InvalidLogLevel(t *testing.T) {
+func TestValidateConfig_InvalidLogLevel(t *testing.T) {
 	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -78,14 +106,23 @@ func TestValidate_InvalidLogLevel(t *testing.T) {
 	defer os.Remove(wordlist.Name())
 	wordlist.Close()
 
-	cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "invalid", Threads: 50, Timeout: 10}
-	err = Validate(cfg, []string{"http://example.com"})
+	cfg := &Config{
+		Wordlist: wordlist.Name(),
+		LogLevel: "invalid",
+		Threads:  50,
+		Timeout:  10,
+		Method:   "GET",
+		MaxResponseMB: 10,
+		ExtractDepth: 2,
+		RecalInterval: 500,
+	}
+	err = ValidateConfig(cfg)
 	if err == nil {
 		t.Error("expected error for invalid log level")
 	}
 }
 
-func TestValidate_InvalidThreads(t *testing.T) {
+func TestValidateConfig_InvalidThreads(t *testing.T) {
 	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -93,59 +130,18 @@ func TestValidate_InvalidThreads(t *testing.T) {
 	defer os.Remove(wordlist.Name())
 	wordlist.Close()
 
-	cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: -1}
-	err = Validate(cfg, []string{"http://example.com"})
+	cfg := &Config{
+		Wordlist: wordlist.Name(),
+		LogLevel: "info",
+		Threads:  -1,
+	}
+	err = ValidateConfig(cfg)
 	if err == nil {
 		t.Error("expected error for negative threads")
 	}
 }
 
-func TestHeaderFlags(t *testing.T) {
-	var h headerFlags
-
-	if h.String() != "" {
-		t.Errorf("expected empty string, got %q", h.String())
-	}
-
-	h.Set("Authorization: Bearer token")
-	h.Set("X-Custom: value")
-
-	if len(h) != 2 {
-		t.Errorf("expected 2 headers, got %d", len(h))
-	}
-
-	str := h.String()
-	if str == "" {
-		t.Error("expected non-empty string")
-	}
-}
-
-func TestStringSliceFlag(t *testing.T) {
-	var s stringSliceFlag
-
-	s.Set("*.example.com")
-	s.Set("*.test.com")
-
-	if len(s) != 2 {
-		t.Errorf("expected 2 patterns, got %d", len(s))
-	}
-}
-
-func TestEnvOrDefault(t *testing.T) {
-	result := envOrDefault("NONEXISTENT_VAR_12345", 42)
-	if result != 42 {
-		t.Errorf("expected default 42, got %d", result)
-	}
-}
-
-func TestEnvOrDefaultStr(t *testing.T) {
-	result := envOrDefaultStr("NONEXISTENT_VAR_12345", "default")
-	if result != "default" {
-		t.Errorf("expected 'default', got %q", result)
-	}
-}
-
-func TestValidate_FailOnValid(t *testing.T) {
+func TestValidateConfig_FailOnValid(t *testing.T) {
 	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -154,15 +150,30 @@ func TestValidate_FailOnValid(t *testing.T) {
 	wordlist.Close()
 
 	for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
-		cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: 50, Timeout: 10, FailOn: sev}
-		err := Validate(cfg, []string{"http://example.com"})
+		cfg := &Config{
+			Wordlist: wordlist.Name(),
+			LogLevel: "info",
+			Threads:  50,
+			Timeout:  10,
+			FailOn:   sev,
+			Method:   "GET",
+			FuzzMode: "sniper",
+			TLSImpersonate: "random",
+			JitterProfile: "moderate",
+			ProxyStrategy: "random",
+			OutputFormat: "jsonl",
+			MaxResponseMB: 10,
+			ExtractDepth: 2,
+			RecalInterval: 500,
+		}
+		err := ValidateConfig(cfg)
 		if err != nil {
 			t.Errorf("expected no error for --fail-on %s, got %v", sev, err)
 		}
 	}
 }
 
-func TestValidate_FailOnInvalid(t *testing.T) {
+func TestValidateConfig_FailOnInvalid(t *testing.T) {
 	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -170,14 +181,24 @@ func TestValidate_FailOnInvalid(t *testing.T) {
 	defer os.Remove(wordlist.Name())
 	wordlist.Close()
 
-	cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: 50, Timeout: 10, FailOn: "invalid"}
-	err = Validate(cfg, []string{"http://example.com"})
+	cfg := &Config{
+		Wordlist: wordlist.Name(),
+		LogLevel: "info",
+		Threads:  50,
+		Timeout:  10,
+		FailOn:   "invalid",
+		Method:   "GET",
+		MaxResponseMB: 10,
+		ExtractDepth: 2,
+		RecalInterval: 500,
+	}
+	err = ValidateConfig(cfg)
 	if err == nil {
 		t.Error("expected error for invalid --fail-on value")
 	}
 }
 
-func TestValidate_FailOnEmpty(t *testing.T) {
+func TestValidateConfig_H3SocksConflict(t *testing.T) {
 	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -185,9 +206,84 @@ func TestValidate_FailOnEmpty(t *testing.T) {
 	defer os.Remove(wordlist.Name())
 	wordlist.Close()
 
-	cfg := &Config{Wordlist: wordlist.Name(), LogLevel: "info", Threads: 50, Timeout: 10, FailOn: ""}
-	err = Validate(cfg, []string{"http://example.com"})
+	cfg := &Config{
+		Wordlist:       wordlist.Name(),
+		Threads:        50,
+		Timeout:        10,
+		Method:         "GET",
+		MaxResponseMB:  10,
+		ExtractDepth:   2,
+		RecalInterval:  500,
+		FuzzMode:       "sniper",
+		TLSImpersonate: "random",
+		JitterProfile:  "moderate",
+		ProxyStrategy:  "random",
+		OutputFormat:   "jsonl",
+		LogLevel:       "info",
+		EnableHTTP3:    true,
+		Proxy:          "socks5://127.0.0.1:9050",
+	}
+	err = ValidateConfig(cfg)
+	if err == nil {
+		t.Error("expected error for H3 + SOCKS5 proxy conflict")
+	}
+}
+
+func TestValidateConfig_InvalidCodeSpec(t *testing.T) {
+	wordlist, err := os.CreateTemp("", "wordlist-*.txt")
 	if err != nil {
-		t.Errorf("expected no error for empty --fail-on, got %v", err)
+		t.Fatal(err)
+	}
+	defer os.Remove(wordlist.Name())
+	wordlist.Close()
+
+	cfg := &Config{
+		Wordlist:      wordlist.Name(),
+		Threads:       50,
+		Timeout:       10,
+		Method:        "GET",
+		MaxResponseMB: 10,
+		ExtractDepth:  2,
+		RecalInterval: 500,
+		MatchCodes:    "200-800", // invalid range
+	}
+	err = ValidateConfig(cfg)
+	if err == nil {
+		t.Error("expected error for invalid match-code format")
+	}
+
+	cfg.MatchCodes = "abc"
+	err = ValidateConfig(cfg)
+	if err == nil {
+		t.Error("expected error for non-integer match-code")
+	}
+}
+
+func TestValidateCodeSpec(t *testing.T) {
+	tests := []struct {
+		spec    string
+		isValid bool
+	}{
+		{"200", true},
+		{"200,404,500", true},
+		{"200-299", true},
+		{"200-299,301,400-405", true},
+		{"", true}, // empty is valid (skipped)
+		{"99", false}, // too low
+		{"600", false}, // too high
+		{"200-", false}, // syntax
+		{"-200", false}, // syntax
+		{"300-200", false}, // lo > hi
+		{"abc", false}, // not int
+	}
+
+	for _, tt := range tests {
+		err := validateCodeSpec(tt.spec, "--test-flag")
+		if tt.isValid && err != nil {
+			t.Errorf("expected %q to be valid, got %v", tt.spec, err)
+		}
+		if !tt.isValid && err == nil {
+			t.Errorf("expected %q to be invalid", tt.spec)
+		}
 	}
 }

@@ -22,20 +22,18 @@ type Engine struct {
 	statsReady chan struct{}
 }
 
-func NewEngine(cfg config.Config) *Engine {
-	client := transport.NewClient(
-		cfg.Timeout,
-		cfg.RateLimit,
-		cfg.RetryAttempts,
-		cfg.MaxResponseMB,
-	)
+func NewEngine(cfg config.Config) (*Engine, error) {
+	client, err := transport.NewClient(&cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Engine{
 		config:     cfg,
 		client:     client,
 		calCache:   detection.NewCalibrationCache(),
 		statsReady: make(chan struct{}),
-	}
+	}, nil
 }
 
 // WaitForStats blocks until the scan engine has initialized its Stats.

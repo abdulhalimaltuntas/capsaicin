@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/capsaicin/scanner/internal/config"
 	"github.com/capsaicin/scanner/internal/reporting"
 	"github.com/capsaicin/scanner/internal/scanner"
@@ -17,9 +18,37 @@ import (
 )
 
 func main() {
+	rootCmd := &cobra.Command{
+		Use:   "capsaicin",
+		Short: "Next-Generation Directory & Asset Discovery Engine",
+		Long: `Capsaicin v2 — Fast, intelligent web directory scanner built for security professionals.
+Features smart anomaly detection, stateful fuzzing, and advanced evasion mechanics.
+
+Examples:
+  capsaicin -u https://target.com -w wordlist.txt
+  capsaicin -u https://api.target.com/FUZZ -w words.txt --mode dynamic
+  cat targets.txt | capsaicin -w words.txt -t 100 --h3 --tls-impersonate chrome`,
+		RunE: runScan,
+		// Silence errors/usage because we handle printing them explicitly.
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
+
+	config.InitFlags(rootCmd)
+
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		os.Exit(1)
+	}
+}
+
+func runScan(cmd *cobra.Command, args []string) error {
 	ui.PrintBanner()
 
-	cfg := config.Parse()
+	cfg, err := config.LoadConfig(cmd)
+	if err != nil {
+		return fmt.Errorf("configuration error: %w", err)
+	}
 
 	targets := []string{}
 	stat, _ := os.Stdin.Stat()
@@ -36,21 +65,24 @@ func main() {
 	} else if cfg.TargetURL != "" {
 		targets = append(targets, cfg.TargetURL)
 	} else {
-		fmt.Fprintln(os.Stderr, "Error: No target specified. Use -u flag or pipe targets via STDIN")
-		os.Exit(1)
+		return fmt.Errorf("no target specified. Use -u flag or pipe targets via STDIN")
 	}
 
-	if err := config.Validate(&cfg, targets); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		os.Exit(1)
+	if err := config.Validate(cfg, targets); err != nil {
+		return err
 	}
 
 	// Count wordlist lines for display.
 	wordCount, _ := scanner.CountWordlist(cfg.Wordlist)
-	ui.PrintConfig(cfg, len(targets), wordCount)
+	
+	// Value semantic pass for backward-compatibility with UI package which
+	// currently expects a non-pointer config.Config struct.
+	ui.PrintConfig(*cfg, len(targets), wordCount)
 
-	engine := scanner.NewEngine(cfg)
-
+	engine, err := scanner.NewEngine(*cfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize scan engine: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -109,8 +141,7 @@ func main() {
 		if ctx.Err() != nil {
 			fmt.Fprintln(os.Stderr, "  [!] Scan cancelled by user")
 		} else {
-			fmt.Fprintf(os.Stderr, "Scan error: %s\n", sr.err)
-			os.Exit(1)
+			return fmt.Errorf("scan error: %w", sr.err)
 		}
 	}
 
@@ -144,4 +175,6 @@ func main() {
 			os.Exit(exitCode)
 		}
 	}
+
+	return nil
 }
