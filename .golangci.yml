@@ -10,20 +10,41 @@ linters:
     - bodyclose
     - contextcheck
     - nilerr
-    - exportloopref
 
 linters-settings:
   govet:
     enable-all: true
+    disable:
+      # Cosmetic struct-field ordering — too noisy to gate CI on.
+      - fieldalignment
+      # Variable shadowing (e.g. reusing `err`) — idiomatic here, not a bug source.
+      - shadow
   gosec:
     excludes:
-      - G104  # unhandled errors in deferred calls
+      # A web content-discovery scanner intentionally does things gosec flags:
+      - G104  # unhandled errors in deferred Close calls
+      - G402  # InsecureSkipVerify — required to reach invalid/self-signed-cert targets
+      - G404  # math/rand — used for jitter/UA/probe tokens (non-crypto), not secrets
+      - G115  # integer conversions — bounded list indices and the signed mmh3 favicon hash
+      - G704  # SSRF taint — requesting user-specified targets IS the tool's purpose
+      - G124  # cookie flags — the headless solver faithfully replays challenge cookies
+      - G304  # file inclusion — wordlist/proxy/resume/output paths are user-supplied by design
+      - G706  # log injection — cluster agent demo logs its own configured master address
   errcheck:
     check-type-assertions: true
 
 issues:
   max-issues-per-linter: 50
   max-same-issues: 5
+  exclude-rules:
+    # Test setup/teardown intentionally ignores errors (temp files, fixture
+    # writes, httptest handlers) — don't gate CI on it.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - bodyclose
+        - contextcheck
 
 run:
   timeout: 5m

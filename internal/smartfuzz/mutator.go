@@ -3,6 +3,7 @@ package smartfuzz
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // Mutator generates intelligent permutations from seed words.
@@ -135,7 +136,7 @@ func defaultRules() []MutationRule {
 			Generate: func(word string) []string {
 				return []string{
 					strings.ToUpper(word),
-					strings.Title(word),
+					titleCase(word),
 					strings.ToLower(word),
 				}
 			},
@@ -184,4 +185,14 @@ func defaultRules() []MutationRule {
 			},
 		},
 	}
+}
+
+// titleCase upper-cases the first rune of s (replaces the deprecated strings.Title).
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }

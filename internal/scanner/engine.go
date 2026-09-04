@@ -228,7 +228,7 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 		if n := requested.preload(e.config.Resume); n > 0 {
 			logging.Info("resume: skipping already-scanned endpoints", "count", n)
 		}
-		if f, err := os.OpenFile(e.config.Resume, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		if f, err := os.OpenFile(e.config.Resume, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			requested.setWriter(bufio.NewWriter(f))
 			defer func() {
 				requested.flush()

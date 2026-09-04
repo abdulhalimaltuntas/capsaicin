@@ -63,7 +63,7 @@ func GenerateHTML(results []scanner.Result, filename string) error {
 	pill(&b, "all", "All", len(sorted))
 	for _, s := range []string{"critical", "high", "medium", "low", "info"} {
 		if sev[s] > 0 {
-			pill(&b, s, strings.Title(s), sev[s])
+			pill(&b, s, titleCase(s), sev[s])
 		}
 	}
 	b.WriteString(`</div>`)

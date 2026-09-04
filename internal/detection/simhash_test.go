@@ -7,7 +7,9 @@ import (
 
 func TestSimHashIdenticalBodies(t *testing.T) {
 	body := "the quick brown fox jumps over the lazy dog many times over"
-	if SimHash(body) != SimHash(body) {
+	h1 := SimHash(body)
+	h2 := SimHash(body)
+	if h1 != h2 {
 		t.Fatal("SimHash is not deterministic for identical input")
 	}
 }

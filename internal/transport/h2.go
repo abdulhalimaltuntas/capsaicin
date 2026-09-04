@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -42,16 +43,17 @@ func NewH2TransportBuilder() *H2TransportBuilder {
 
 // Build constructs the custom h2 transport using utls for spoofing.
 func (b *H2TransportBuilder) Build() (*http2.Transport, error) {
-	// Custom DialTLS context function that intercepts the raw TCP dial,
-	// wraps it in utls.UClient, and forces the handshake with the spoofed ID.
-	dialTLS := func(network, addr string, cfg *tls.Config) (net.Conn, error) {
+	// Custom DialTLSContext function that intercepts the raw TCP dial, wraps it
+	// in utls.UClient, and forces the handshake with the spoofed ID. The context
+	// lets the transport cancel dials it no longer needs.
+	dialTLS := func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
 		host, _, err := net.SplitHostPort(addr)
 		if err != nil {
 			host = addr
 		}
 
-		// Dial raw TCP.
-		conn, err := b.Dialer.Dial(network, addr)
+		// Dial raw TCP (context-aware).
+		conn, err := b.Dialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
@@ -72,8 +74,8 @@ func (b *H2TransportBuilder) Build() (*http2.Transport, error) {
 		// Initialize the uTLS client.
 		uConn := utls.UClient(conn, uCfg, b.HelloID)
 
-		// Force the handshake. If it fails, clean up the underlying socket.
-		if err := uConn.Handshake(); err != nil {
+		// Force the handshake (context-aware). If it fails, clean up the socket.
+		if err := uConn.HandshakeContext(ctx); err != nil {
 			conn.Close()
 			return nil, fmt.Errorf("utls handshake failed indicating WAF drop or timeout: %w", err)
 		}
@@ -92,7 +94,7 @@ func (b *H2TransportBuilder) Build() (*http2.Transport, error) {
 
 	// High concurrency HTTP/2 settings to avoid SYN floods.
 	t2 := &http2.Transport{
-		DialTLS:                    dialTLS,
+		DialTLSContext:             dialTLS,
 		AllowHTTP:                  false, // Force TLS.
 		MaxReadFrameSize:           1048576,
 		DisableCompression:         true, // Let the application layer handle it.

@@ -33,8 +33,8 @@ func (r *requestedSet) markNew(key string) bool {
 	}
 	r.seen[key] = struct{}{}
 	if r.w != nil {
-		r.w.WriteString(key)
-		r.w.WriteByte('\n')
+		_, _ = r.w.WriteString(key)
+		_ = r.w.WriteByte('\n')
 	}
 	return true
 }

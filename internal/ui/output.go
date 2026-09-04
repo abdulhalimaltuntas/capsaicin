@@ -15,16 +15,14 @@ import (
 // Cursor / line control (never suppressed — needed even without color).
 const (
 	clearLine = "\033[2K"
-	moveUp    = "\033[1A"
 )
 
 // Color codes are vars so SetColorEnabled(false) can blank them for non-TTY
 // output, NO_COLOR, or --no-color.
 var (
-	reset  = "\033[0m"
-	bold   = "\033[1m"
-	dim    = "\033[2m"
-	italic = "\033[3m"
+	reset = "\033[0m"
+	bold  = "\033[1m"
+	dim   = "\033[2m"
 
 	red     = "\033[31m"
 	green   = "\033[32m"
@@ -39,7 +37,6 @@ var (
 	bgYellow  = "\033[43m"
 	bgBlue    = "\033[44m"
 	bgMagenta = "\033[45m"
-	bgCyan    = "\033[46m"
 
 	colorEnabled = true
 
@@ -59,9 +56,9 @@ func SetColorEnabled(on bool) {
 	if on {
 		return
 	}
-	reset, bold, dim, italic = "", "", "", ""
+	reset, bold, dim = "", "", ""
 	red, green, yellow, blue, magenta, cyan, white = "", "", "", "", "", "", ""
-	bgRed, bgGreen, bgYellow, bgBlue, bgMagenta, bgCyan = "", "", "", "", "", ""
+	bgRed, bgGreen, bgYellow, bgBlue, bgMagenta = "", "", "", "", ""
 }
 
 // richUI enables the animated progress line (spinner/bar/ETA). It is turned off
