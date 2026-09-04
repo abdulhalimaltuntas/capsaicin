@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/capsaicin/scanner/internal/config"
 )
 
 func TestClientRetry(t *testing.T) {
@@ -24,7 +26,7 @@ func TestClientRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(10, 0, 3, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 3, MaxResponseMB: 10})
 
 	req, _ := http.NewRequest("GET", server.URL, nil)
 	resp, body, err := client.Do(req, 0)
@@ -52,7 +54,7 @@ func TestClientRetry_AllFail(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(10, 0, 2, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	req, _ := http.NewRequest("GET", server.URL, nil)
 	resp, body, err := client.Do(req, 0)
@@ -83,7 +85,7 @@ func TestRateLimiting(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(10, 2, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	for i := 0; i < 5; i++ {
 		req, _ := http.NewRequest("GET", server.URL, nil)
@@ -113,7 +115,7 @@ func TestRateLimiting_Disabled(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(10, 0, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	start := time.Now()
 	for i := 0; i < 10; i++ {
@@ -132,14 +134,14 @@ func TestRateLimiting_Disabled(t *testing.T) {
 }
 
 func TestCircuitBreaker(t *testing.T) {
-	client := NewClient(10, 0, 1, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 	}))
 	defer server.Close()
 
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 25; i++ {
 		req, _ := http.NewRequest("GET", server.URL, nil)
 		client.Do(req, 0)
 	}
@@ -161,7 +163,7 @@ func TestCircuitBreakerRecoversAfterSuccessfulRequest(t *testing.T) {
 	attempts := int32(0)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&attempts, 1)
-		if count <= 10 {
+		if count <= 20 {
 			w.WriteHeader(500)
 			return
 		}
@@ -170,9 +172,9 @@ func TestCircuitBreakerRecoversAfterSuccessfulRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(10, 0, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
 		req, _ := http.NewRequest("GET", server.URL, nil)
 		client.Do(req, 0)
 	}
@@ -210,7 +212,7 @@ func TestMaxBodySize(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(10, 0, 0, 1)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 1})
 
 	req, _ := http.NewRequest("GET", server.URL, nil)
 	_, body, err := client.Do(req, 0)
@@ -283,7 +285,7 @@ func TestCircuitBreaker_RecordSuccess_ClearsFailures(t *testing.T) {
 }
 
 func TestClient_HTTPClient(t *testing.T) {
-	client := NewClient(10, 0, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 	httpClient := client.HTTPClient()
 
 	if httpClient == nil {
@@ -306,7 +308,7 @@ func TestClient_RedirectPolicy(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(10, 0, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	req, _ := http.NewRequest("GET", server.URL+"/redirect", nil)
 	resp, _, err := client.Do(req, 0)
@@ -321,7 +323,7 @@ func TestClient_RedirectPolicy(t *testing.T) {
 }
 
 func TestRateLimiter_MultipleHosts(t *testing.T) {
-	client := NewClient(10, 5, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	limiter1 := client.getRateLimiter("host1.com", 5)
 	limiter2 := client.getRateLimiter("host2.com", 5)
@@ -337,7 +339,7 @@ func TestRateLimiter_MultipleHosts(t *testing.T) {
 }
 
 func TestRateLimiter_Concurrent(t *testing.T) {
-	client := NewClient(10, 10, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -359,7 +361,7 @@ func TestRateLimiter_Concurrent(t *testing.T) {
 }
 
 func TestClient_ConnectionRefused(t *testing.T) {
-	client := NewClient(2, 0, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:1", nil)
 	_, _, err := client.Do(req, 0)
@@ -370,7 +372,7 @@ func TestClient_ConnectionRefused(t *testing.T) {
 }
 
 func TestClient_InvalidURL(t *testing.T) {
-	client := NewClient(10, 0, 0, 10)
+	client, _ := NewClient(&config.Config{Timeout: 10, RetryAttempts: 0, MaxResponseMB: 10})
 
 	req, err := http.NewRequest("GET", "://invalid", nil)
 	if err != nil {

@@ -115,3 +115,27 @@ func TestDedupKey(t *testing.T) {
 		t.Errorf("expected key %q, got %q", expected, key)
 	}
 }
+
+// TestDedup_OrderedResultsNoSupersededLeak guards the engine-report fix: when a
+// finding is replaced by a higher-severity duplicate, OrderedResults must return
+// exactly one entry (the upgraded one), never both the old and new copies.
+func TestDedup_OrderedResultsNoSupersededLeak(t *testing.T) {
+	dedup := NewDeduplicator()
+
+	// Same URL+Method seen twice, severity increasing on the second sighting.
+	dedup.Add(&Result{URL: "http://a.com/x", Method: "GET", Severity: SeverityInfo})
+	dedup.Add(&Result{URL: "http://a.com/x", Method: "GET", Severity: SeverityCritical})
+	// A distinct finding, to check ordering is preserved.
+	dedup.Add(&Result{URL: "http://a.com/y", Method: "GET", Severity: SeverityLow})
+
+	got := dedup.OrderedResults()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 deduplicated results, got %d (superseded copy leaked?)", len(got))
+	}
+	if got[0].URL != "http://a.com/x" || got[0].Severity != SeverityCritical {
+		t.Errorf("first result should be upgraded /x critical, got %q %q", got[0].URL, got[0].Severity)
+	}
+	if got[1].URL != "http://a.com/y" {
+		t.Errorf("insertion order not preserved; expected /y second, got %q", got[1].URL)
+	}
+}

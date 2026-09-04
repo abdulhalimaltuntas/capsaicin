@@ -279,7 +279,7 @@ func TestCalibration(t *testing.T) {
 	cache := NewCalibrationCache()
 	client := &http.Client{}
 
-	sigs := PerformCalibration(context.Background(), server.URL, client, nil, cache)
+	sigs := PerformCalibration(context.Background(), server.URL, ClientFetcher(client), nil, cache)
 
 	if len(sigs) == 0 {
 		t.Error("expected calibration signatures")
@@ -303,7 +303,7 @@ func TestCalibration_CacheHit(t *testing.T) {
 	}
 	cache.Set("http://cached.example.com", preloaded)
 
-	sigs := PerformCalibration(context.Background(), "http://cached.example.com", &http.Client{}, nil, cache)
+	sigs := PerformCalibration(context.Background(), "http://cached.example.com", ClientFetcher(&http.Client{}), nil, cache)
 
 	if len(sigs) != 1 {
 		t.Errorf("expected 1 cached signature, got %d", len(sigs))
@@ -322,7 +322,7 @@ func TestCalibration_WithCustomHeaders(t *testing.T) {
 	cache := NewCalibrationCache()
 	headers := map[string]string{"Authorization": "Bearer test123"}
 
-	PerformCalibration(context.Background(), server.URL, &http.Client{}, headers, cache)
+	PerformCalibration(context.Background(), server.URL, ClientFetcher(&http.Client{}), headers, cache)
 
 	if receivedHeaders["Authorization"] != "Bearer test123" {
 		t.Errorf("expected Authorization header, got %q", receivedHeaders["Authorization"])
@@ -336,7 +336,7 @@ func TestCalibration_ServerError(t *testing.T) {
 	defer server.Close()
 
 	cache := NewCalibrationCache()
-	sigs := PerformCalibration(context.Background(), server.URL, &http.Client{}, nil, cache)
+	sigs := PerformCalibration(context.Background(), server.URL, ClientFetcher(&http.Client{}), nil, cache)
 
 	if len(sigs) == 0 {
 		t.Error("expected signatures even for 500 responses")

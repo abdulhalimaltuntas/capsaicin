@@ -250,23 +250,23 @@ func TestGenerateHTML_Basic(t *testing.T) {
 
 	html := string(data)
 
-	if !strings.Contains(html, "Capsaicin Scan Report") {
+	if !strings.Contains(html, "Capsaicin") || !strings.Contains(html, "Scan Report") {
 		t.Error("expected title in HTML")
 	}
 	if !strings.Contains(html, "http://example.com/admin") {
 		t.Error("expected admin URL in HTML")
 	}
-	if !strings.Contains(html, "CRITICAL") {
-		t.Error("expected CRITICAL badge in HTML")
+	if !strings.Contains(html, "AWS Access Key") {
+		t.Error("expected secret type in HTML")
 	}
-	if !strings.Contains(html, "SECRET") {
-		t.Error("expected SECRET badge in HTML")
-	}
-	if !strings.Contains(html, "WAF") {
-		t.Error("expected WAF badge in HTML")
+	if !strings.Contains(html, "WAF") { // stat card label
+		t.Error("expected WAF stat card in HTML")
 	}
 	if !strings.Contains(html, "Cloudflare") {
 		t.Error("expected Cloudflare WAF in HTML")
+	}
+	if !strings.Contains(html, `id="q"`) || !strings.Contains(html, "sortBy") {
+		t.Error("expected interactive search + sort controls in HTML")
 	}
 }
 
@@ -296,5 +296,105 @@ func TestGenerateHTML_InvalidPath(t *testing.T) {
 	err := GenerateHTML(testResults(), "/nonexistent/dir/report.html")
 	if err == nil {
 		t.Error("expected error for invalid path")
+	}
+}
+
+// TestGenerateHTML_EscapesUntrustedData verifies that target-controlled fields
+// (URL, Server, WAF name) are HTML-escaped in the report so a malicious target
+// cannot land stored XSS in the analyst's browser when the report is opened.
+func TestGenerateHTML_EscapesUntrustedData(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "report-xss-*.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	results := []scanner.Result{
+		{
+			URL:         `http://evil.test/<script>alert(1)</script>`,
+			StatusCode:  200,
+			Server:      `<img src=x onerror=alert(2)>`,
+			WAFDetected: `<b>waf</b>`,
+			Method:      "GET",
+		},
+	}
+
+	if err := GenerateHTML(results, tmpFile.Name()); err != nil {
+		t.Fatalf("GenerateHTML failed: %v", err)
+	}
+	data, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	out := string(data)
+
+	if strings.Contains(out, "<script>alert(1)</script>") {
+		t.Error("URL was not escaped — raw <script> present in report (XSS)")
+	}
+	if strings.Contains(out, "<img src=x onerror=alert(2)>") {
+		t.Error("Server header was not escaped — raw <img onerror> present (XSS)")
+	}
+	if !strings.Contains(out, "&lt;script&gt;") {
+		t.Error("expected escaped URL entity &lt;script&gt; in report")
+	}
+}
+
+func TestSaveCSVAndJSONL(t *testing.T) {
+	results := testResults()
+
+	csvFile, _ := os.CreateTemp("", "rep-*.csv")
+	defer os.Remove(csvFile.Name())
+	csvFile.Close()
+	if err := SaveCSV(results, csvFile.Name()); err != nil {
+		t.Fatalf("SaveCSV: %v", err)
+	}
+	data, _ := os.ReadFile(csvFile.Name())
+	if !strings.HasPrefix(string(data), "url,status_code,size") {
+		t.Errorf("CSV missing header row, got: %.40q", string(data))
+	}
+	if lines := strings.Count(strings.TrimSpace(string(data)), "\n") + 1; lines != len(results)+1 {
+		t.Errorf("CSV expected %d rows (incl header), got %d", len(results)+1, lines)
+	}
+
+	jsonlFile, _ := os.CreateTemp("", "rep-*.jsonl")
+	defer os.Remove(jsonlFile.Name())
+	jsonlFile.Close()
+	if err := SaveJSONL(results, jsonlFile.Name()); err != nil {
+		t.Fatalf("SaveJSONL: %v", err)
+	}
+	jd, _ := os.ReadFile(jsonlFile.Name())
+	lines := strings.Split(strings.TrimSpace(string(jd)), "\n")
+	if len(lines) != len(results) {
+		t.Fatalf("JSONL expected %d lines, got %d", len(results), len(lines))
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &obj); err != nil {
+		t.Errorf("JSONL line 0 is not valid JSON: %v", err)
+	}
+}
+
+func TestSaveSARIF(t *testing.T) {
+	tmp, _ := os.CreateTemp("", "rep-*.sarif")
+	defer os.Remove(tmp.Name())
+	tmp.Close()
+
+	results := []scanner.Result{
+		{URL: "http://x/secret", StatusCode: 200, Severity: "critical", SecretFound: true, SecretTypes: []string{"AWS"}},
+		{URL: "http://x/admin", StatusCode: 403, Severity: "low"},
+	}
+	if err := SaveSARIF(results, tmp.Name()); err != nil {
+		t.Fatalf("SaveSARIF: %v", err)
+	}
+	data, _ := os.ReadFile(tmp.Name())
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("SARIF is not valid JSON: %v", err)
+	}
+	if doc["version"] != "2.1.0" {
+		t.Errorf("SARIF version wrong: %v", doc["version"])
+	}
+	if !strings.Contains(string(data), "exposed-secret") || !strings.Contains(string(data), "\"error\"") {
+		t.Error("expected exposed-secret rule at error level")
 	}
 }

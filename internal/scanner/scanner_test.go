@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -49,7 +50,10 @@ func TestEngineBasicScan(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, stats, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -107,7 +111,10 @@ func TestEngineRecursiveScan(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, stats, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -123,10 +130,187 @@ func TestEngineRecursiveScan(t *testing.T) {
 	}
 }
 
+// TestEngineRecursiveHighFanout stresses the recursion path with many
+// directories and a large wordlist under a small thread count. The previous
+// bounded-channel design (workers -> newTaskChan, recursion goroutine ->
+// taskChan, both sized Threads*2) could reach a circular wait and deadlock
+// here. With no global scan deadline that hang was permanent, so this test
+// guards against regressing to that design: if it deadlocks, it fails via the
+// watchdog timeout instead of hanging the suite.
+func TestEngineRecursiveHighFanout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Every "dirN" path is a directory (301), so each level fans out
+		// into the full wordlist again — maximizing queue pressure.
+		if strings.Contains(r.URL.Path, "dir") && !strings.Contains(r.URL.Path, ".") {
+			w.Header().Set("Location", r.URL.Path+"/")
+			w.WriteHeader(301)
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	// Fan-out sizing: the bounded-channel deadlock this guards against triggered
+	// once discovered-directory tasks exceeded the channel buffer (Threads*2=4).
+	// A handful of recursing directories already blows past that, so we keep the
+	// counts modest — the queue still peaks in the thousands of pending tasks,
+	// far beyond any buffer — which keeps the guard strong while staying fast
+	// under the -race detector (a fixed 30s watchdog + ~100k requests was flaky).
+	words := make([]string, 0, 20)
+	for i := 0; i < 10; i++ {
+		words = append(words, "dir"+strconv.Itoa(i))
+	}
+	for i := 0; i < 10; i++ {
+		words = append(words, "leaf"+strconv.Itoa(i))
+	}
+	wordlistPath := createWordlist(t, words...)
+
+	cfg := config.Config{
+		Wordlist:      wordlistPath,
+		Threads:       4,
+		Timeout:       10,
+		MaxDepth:      3,
+		RateLimit:     0,
+		RetryAttempts: 0,
+		MaxResponseMB: 10,
+	}
+
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		engine.Run([]string{server.URL})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Completed — no deadlock.
+	case <-time.After(30 * time.Second):
+		t.Fatal("recursive scan deadlocked (did not finish within 30s)")
+	}
+}
+
+func TestEngineExtractPaths(t *testing.T) {
+	// /start is in the wordlist and returns HTML linking to /hidden-endpoint,
+	// which is NOT in the wordlist. With --extract-paths the scanner should
+	// discover and confirm /hidden-endpoint on its own.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/start":
+			w.WriteHeader(200)
+			w.Write([]byte(`<html><body>Landing<a href="/hidden-endpoint">go</a></body></html>`))
+		case "/hidden-endpoint":
+			w.WriteHeader(200)
+			w.Write([]byte("<html><body>Secret discovered endpoint content here</body></html>"))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	wordlistPath := createWordlist(t, "start")
+
+	cfg := config.Config{
+		Wordlist:      wordlistPath,
+		Threads:       2,
+		Timeout:       10,
+		RateLimit:     0,
+		RetryAttempts: 0,
+		MaxResponseMB: 10,
+		ExtractPaths:  true,
+		ExtractDepth:  2,
+	}
+
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
+	results, _, err := engine.Run([]string{server.URL})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	foundHidden := false
+	for _, r := range results {
+		if strings.HasSuffix(r.URL, "/hidden-endpoint") {
+			foundHidden = true
+		}
+	}
+	if !foundHidden {
+		t.Error("expected extracted /hidden-endpoint to be discovered and reported")
+	}
+}
+
+func TestEngineTechTags(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "nginx/1.25")
+		w.Header().Set("X-Powered-By", "PHP/8.2")
+		if r.URL.Path == "/app" {
+			w.WriteHeader(200)
+			w.Write([]byte("Unique application landing page with distinctive content body"))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	wordlistPath := createWordlist(t, "app")
+
+	cfg := config.Config{
+		Wordlist:      wordlistPath,
+		Threads:       1,
+		Timeout:       10,
+		RateLimit:     0,
+		RetryAttempts: 0,
+		MaxResponseMB: 10,
+	}
+
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
+	results, _, err := engine.Run([]string{server.URL})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	var appResult *Result
+	for i := range results {
+		if strings.HasSuffix(results[i].URL, "/app") {
+			appResult = &results[i]
+		}
+	}
+	if appResult == nil {
+		t.Fatal("expected /app result")
+	}
+	hasNginx, hasPHP := false, false
+	for _, tag := range appResult.Tags {
+		if tag == "nginx" {
+			hasNginx = true
+		}
+		if tag == "PHP" {
+			hasPHP = true
+		}
+	}
+	if !hasNginx || !hasPHP {
+		t.Errorf("expected nginx+PHP tech tags, got %v", appResult.Tags)
+	}
+}
+
 func TestEngineWAFDetection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "cloudflare")
-		w.WriteHeader(200)
+		if r.URL.Path == "/test" {
+			w.WriteHeader(200)
+			// Distinctive body so calibration doesn't filter this as noise.
+			w.Write([]byte("This is a real page with unique content that differs from error pages significantly"))
+			return
+		}
+		w.WriteHeader(404)
 	}))
 	defer server.Close()
 
@@ -141,7 +325,10 @@ func TestEngineWAFDetection(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, stats, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -325,7 +512,10 @@ func TestEngine405MethodFuzzing(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -373,7 +563,10 @@ func TestEngineBypassAttempt(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -417,8 +610,11 @@ func TestEngineCustomHeaders(t *testing.T) {
 		CustomHeaders: map[string]string{"Authorization": "Bearer test-token"},
 	}
 
-	engine := NewEngine(cfg)
-	_, _, err := engine.Run([]string{server.URL})
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
+	_, _, err = engine.Run([]string{server.URL})
 
 	if err != nil {
 		t.Fatalf("scan failed: %v", err)
@@ -454,7 +650,10 @@ func TestEngineWithExtensions(t *testing.T) {
 		Extensions:    []string{".php", ".html"},
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -525,7 +724,10 @@ func TestEngineMultipleTargets(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, stats, err := engine.Run([]string{server1.URL, server2.URL})
 
 	if err != nil {
@@ -571,7 +773,10 @@ func TestEngineSafeMode_NoBypass(t *testing.T) {
 		SafeMode:      true,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {
@@ -618,8 +823,11 @@ func TestEngineSafeMode_NoMethodFuzzing(t *testing.T) {
 		SafeMode:      true,
 	}
 
-	engine := NewEngine(cfg)
-	_, _, err := engine.Run([]string{server.URL})
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
+	_, _, err = engine.Run([]string{server.URL})
 
 	if err != nil {
 		t.Fatalf("scan failed: %v", err)
@@ -654,7 +862,10 @@ func TestEngineResultsHaveSeverity(t *testing.T) {
 		MaxResponseMB: 10,
 	}
 
-	engine := NewEngine(cfg)
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine failed: %v", err)
+	}
 	results, _, err := engine.Run([]string{server.URL})
 
 	if err != nil {

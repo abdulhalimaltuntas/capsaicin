@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"time"
 
@@ -48,7 +47,7 @@ func SaveJSON(results []scanner.Result, filename string) error {
 		return sorted[i].StatusCode < sorted[j].StatusCode
 	})
 
-	file, err := os.Create(filename)
+	file, err := createOutput(filename)
 	if err != nil {
 		return err
 	}
@@ -88,7 +87,7 @@ func SaveJSONReport(results []scanner.Result, filename string, targets []string,
 		Results: sorted,
 	}
 
-	file, err := os.Create(filename)
+	file, err := createOutput(filename)
 	if err != nil {
 		return err
 	}

@@ -54,6 +54,13 @@ func AssignSeverityAndConfidence(r *Result) {
 		r.Tags = appendUnique(r.Tags, "secret")
 	}
 
+	// A live-verified secret is unambiguously critical.
+	if hasAnyTag(r.Tags, "secret-verified") {
+		r.Severity = SeverityCritical
+		r.Confidence = ConfidenceConfirmed
+		r.Critical = true
+	}
+
 	// Bypass detection is high severity with firm confidence.
 	if strings.Contains(r.Method, "BYPASS") || strings.HasSuffix(r.URL, " [BYPASS]") {
 		if CompareSeverity(SeverityHigh, r.Severity) > 0 || r.Severity == SeverityInfo {
@@ -100,6 +107,39 @@ func AssignSeverityAndConfidence(r *Result) {
 	if r.WAFDetected != "" {
 		r.Tags = appendUnique(r.Tags, "waf")
 	}
+
+	// Sensitive-content signals from detection.ClassifyContent (VCS/config/env
+	// exposure, backups, directory listings) elevate severity when they beat the
+	// current assessment.
+	switch {
+	case hasAnyTag(r.Tags, "exposure-git", "exposure-svn", "exposure-hg", "env-file", "sensitive-config", "db-dump"):
+		if CompareSeverity(SeverityCritical, r.Severity) > 0 {
+			r.Severity = SeverityCritical
+			r.Confidence = ConfidenceFirm
+		}
+		r.Critical = true
+	case hasAnyTag(r.Tags, "backup-file"):
+		if CompareSeverity(SeverityHigh, r.Severity) > 0 {
+			r.Severity = SeverityHigh
+			r.Confidence = ConfidenceFirm
+		}
+	case hasAnyTag(r.Tags, "source-map", "directory-listing", "cors-wildcard"):
+		if CompareSeverity(SeverityMedium, r.Severity) > 0 {
+			r.Severity = SeverityMedium
+		}
+	}
+}
+
+// hasAnyTag reports whether tags contains any of the given values.
+func hasAnyTag(tags []string, any ...string) bool {
+	for _, t := range tags {
+		for _, a := range any {
+			if t == a {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // secretTypesToSeverity maps detected secret types to the highest applicable severity.

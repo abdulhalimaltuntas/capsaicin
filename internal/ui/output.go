@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -10,7 +12,15 @@ import (
 	"github.com/capsaicin/scanner/internal/scanner"
 )
 
+// Cursor / line control (never suppressed — needed even without color).
 const (
+	clearLine = "\033[2K"
+	moveUp    = "\033[1A"
+)
+
+// Color codes are vars so SetColorEnabled(false) can blank them for non-TTY
+// output, NO_COLOR, or --no-color.
+var (
 	reset  = "\033[0m"
 	bold   = "\033[1m"
 	dim    = "\033[2m"
@@ -31,101 +41,203 @@ const (
 	bgMagenta = "\033[45m"
 	bgCyan    = "\033[46m"
 
-	// Cursor / line control
-	clearLine = "\033[2K"
-	moveUp    = "\033[1A"
+	colorEnabled = true
+
+	// out is where all human-facing UI (banner, config, progress, live results)
+	// is written. It defaults to stderr so stdout stays a clean data channel
+	// (e.g. `-o -` JSONL) that can be piped to other tools.
+	out io.Writer = os.Stderr
 )
 
-// PrintBanner displays a clean, professional banner.
+// SetOutput redirects all UI writes (default: stderr).
+func SetOutput(w io.Writer) { out = w }
+
+// SetColorEnabled toggles ANSI styling. When off, every color/style code is
+// blanked so piped or redirected output is plain text.
+func SetColorEnabled(on bool) {
+	colorEnabled = on
+	if on {
+		return
+	}
+	reset, bold, dim, italic = "", "", "", ""
+	red, green, yellow, blue, magenta, cyan, white = "", "", "", "", "", "", ""
+	bgRed, bgGreen, bgYellow, bgBlue, bgMagenta, bgCyan = "", "", "", "", "", ""
+}
+
+// richUI enables the animated progress line (spinner/bar/ETA). It is turned off
+// for non-TTY output and for --debug/--verbose so logs are not clobbered. silent
+// suppresses all human-facing output (banner/config/results/summary).
+var (
+	richUI = true
+	silent = false
+)
+
+// SetRich toggles the animated live progress display.
+func SetRich(on bool) { richUI = on }
+
+// SetSilent suppresses all UI output (results still go to -o/stdout).
+func SetSilent(on bool) { silent = on }
+
+// flame is a red→orange→yellow 256-color ramp evoking chili heat, used to tint
+// the banner, rules, and progress bar.
+var flame = []int{196, 202, 208, 214, 220, 226}
+
+func fg256(c int) string {
+	if !colorEnabled {
+		return ""
+	}
+	return fmt.Sprintf("\033[38;5;%dm", c)
+}
+
+// gradient tints a string across the flame ramp, one step per rune.
+func gradient(s string) string {
+	runes := []rune(s)
+	n := len(runes)
+	var b strings.Builder
+	for i, r := range runes {
+		idx := 0
+		if n > 1 {
+			idx = i * (len(flame) - 1) / (n - 1)
+		}
+		b.WriteString(fg256(flame[idx]))
+		b.WriteRune(r)
+	}
+	b.WriteString(reset)
+	return b.String()
+}
+
+// PrintBanner displays the chili-gradient wordmark banner.
 func PrintBanner() {
-	fmt.Println()
-	fmt.Printf("  %s%s┌──────────────────────────────────────────────────┐%s\n", bold, red, reset)
-	fmt.Printf("  %s%s│%s  🌶  %s%sCAPSAICIN%s  %sv3.1%s  %s%s─  Web Directory Scanner  %s%s│%s\n",
-		bold, red, reset,
-		bold, white, reset,
+	if silent {
+		return
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "   🌶  %s%s%s\n", bold, gradient("C A P S A I C I N"), reset)
+	fmt.Fprintf(out, "   %s\n", gradient(strings.Repeat("▔", 34)))
+	fmt.Fprintf(out, "   %sweb content discovery%s  %s·%s  %s%sv3.1%s  %s·%s  %s\n",
 		dim, reset,
-		dim, white, reset,
-		bold+red, reset)
-	fmt.Printf("  %s%s└──────────────────────────────────────────────────┘%s\n", bold, red, reset)
-	fmt.Println()
+		fg256(208), reset,
+		bold, white, reset,
+		fg256(208), reset,
+		gradient("fast · adaptive · evasive"))
+	fmt.Fprintln(out)
+}
+
+// row prints one aligned key/value line in the config/summary panels.
+func row(label, valueColor, value string) {
+	fmt.Fprintf(out, "  %s%-13s%s %s%s%s\n", dim, label, reset, valueColor, value, reset)
+}
+
+// chip renders a small highlighted feature tag.
+func chip(label string) string {
+	return fmt.Sprintf("%s %s %s", fg256(208)+"\033[48;5;236m"+bold, label, reset)
 }
 
 // PrintConfig displays scan configuration in a structured panel.
 func PrintConfig(cfg config.Config, targetCount int, wordCount int) {
-	fmt.Printf("  %s%s⚙  Scan Configuration%s\n", bold, cyan, reset)
-	fmt.Printf("  %s──────────────────────────────────────%s\n", dim, reset)
-	fmt.Printf("  %s%-14s%s %s%d%s\n", dim, "Targets", reset, white, targetCount, reset)
-	fmt.Printf("  %s%-14s%s %s%d%s\n", dim, "Threads", reset, white, cfg.Threads, reset)
-	fmt.Printf("  %s%-14s%s %s%ds%s\n", dim, "Timeout", reset, white, cfg.Timeout, reset)
-	fmt.Printf("  %s%-14s%s %s%s%s\n", dim, "Wordlist", reset, white, cfg.Wordlist, reset)
+	if silent {
+		return
+	}
+	fmt.Fprintf(out, "  %s%s⚙  scan configuration%s\n", bold, fg256(208), reset)
+	fmt.Fprintf(out, "  %s\n", gradient(strings.Repeat("─", 38)))
+
+	row("Targets", white, fmt.Sprintf("%d", targetCount))
+	row("Wordlist", white, cfg.Wordlist)
 	if wordCount > 0 {
-		fmt.Printf("  %s%-14s%s %s%d words%s\n", dim, "Words", reset, white, wordCount, reset)
-	}
-
-	if cfg.RateLimit > 0 {
-		fmt.Printf("  %s%-14s%s %s%d req/s%s\n", dim, "Rate Limit", reset, white, cfg.RateLimit, reset)
-	} else {
-		fmt.Printf("  %s%-14s%s %sunlimited%s\n", dim, "Rate Limit", reset, dim+white, reset)
-	}
-
-	if cfg.MaxDepth > 0 {
-		fmt.Printf("  %s%-14s%s %s%d%s\n", dim, "Max Depth", reset, white, cfg.MaxDepth, reset)
+		row("Words", white, fmt.Sprintf("%d", wordCount))
 	}
 	if len(cfg.Extensions) > 0 {
-		fmt.Printf("  %s%-14s%s %s%s%s\n", dim, "Extensions", reset, white, strings.Join(cfg.Extensions, ", "), reset)
+		row("Extensions", white, strings.Join(cfg.Extensions, ", "))
+	}
+	if cfg.Method != "" && cfg.Method != "GET" {
+		row("Method", cyan+bold, cfg.Method)
+	}
+
+	row("Threads", white, fmt.Sprintf("%d", cfg.Threads))
+	if cfg.RateLimit > 0 {
+		row("Rate Limit", white, fmt.Sprintf("%d req/s", cfg.RateLimit))
+	} else {
+		row("Rate Limit", dim+white, "unlimited")
+	}
+	row("Timeout", white, fmt.Sprintf("%ds", cfg.Timeout))
+
+	// Transport: the historically fragile knob — make it explicit.
+	transport := "HTTP/1.1+2 (auto)"
+	if cfg.EnableHTTP3 {
+		transport = "HTTP/3 (QUIC)"
+	} else if cfg.ForceHTTP2 {
+		transport = "uTLS h2 [" + cfg.TLSImpersonate + "]"
+	}
+	row("Transport", white, transport)
+	row("Jitter", white, cfg.JitterProfile)
+	if cfg.MaxDepth > 0 {
+		row("Max Depth", white, fmt.Sprintf("%d", cfg.MaxDepth))
+	}
+
+	// Matchers / filters — only show what is actually set.
+	if cfg.MatchCodes != "" {
+		row("Match Code", green, cfg.MatchCodes)
+	}
+	printFilterRows(cfg)
+
+	// Enabled subsystems as chips.
+	var chips []string
+	if cfg.Spider {
+		chips = append(chips, chip("spider"))
+	}
+	if cfg.ExtractPaths {
+		chips = append(chips, chip("extract"))
+	}
+	if cfg.AdaptiveRate {
+		chips = append(chips, chip("adaptive"))
+	}
+	if cfg.Headless {
+		chips = append(chips, chip("headless"))
+	}
+	if cfg.AutoCalibrate {
+		chips = append(chips, chip("auto-cal"))
 	}
 	if cfg.SafeMode {
-		fmt.Printf("  %s%-14s%s %s%s⚠ Safe Mode%s\n", dim, "Mode", reset, bold, yellow, reset)
+		chips = append(chips, chip("safe"))
 	}
-	fmt.Printf("  %s%-14s%s %s%s%s\n", dim, "Started", reset, white, time.Now().Format("15:04:05 — 2006-01-02"), reset)
-	fmt.Printf("  %s──────────────────────────────────────%s\n", dim, reset)
-	fmt.Println()
+	if len(chips) > 0 {
+		fmt.Fprintf(out, "  %s%-13s%s %s\n", dim, "Features", reset, strings.Join(chips, " "))
+	}
+
+	row("Started", white, time.Now().Format("15:04:05 · 2006-01-02"))
+	fmt.Fprintf(out, "  %s\n", gradient(strings.Repeat("─", 38)))
+	fmt.Fprintln(out)
 }
 
-// PrintResult formats a single scan result with status badge and tags.
-func PrintResult(result scanner.Result) {
-	statusColor := statusToColor(result.StatusCode)
-	statusBg := statusToBg(result.StatusCode)
-
-	badge := fmt.Sprintf(" %s%s %d %s", bold, statusBg, result.StatusCode, reset)
-
-	var tags []string
-
-	if result.Critical {
-		tags = append(tags, fmt.Sprintf("%s%s CRITICAL %s", bold, bgRed, reset))
+// printFilterRows renders any active match-size/regex and filter rows.
+func printFilterRows(cfg config.Config) {
+	if cfg.MatchSize != "" {
+		row("Match Size", green, cfg.MatchSize)
 	}
-
-	if result.SecretFound {
-		tags = append(tags, fmt.Sprintf("%s%s 🔑 SECRET %s", bold, bgMagenta, reset))
+	if cfg.MatchRegex != "" {
+		row("Match Regex", green, cfg.MatchRegex)
 	}
-
-	if result.WAFDetected != "" {
-		tags = append(tags, fmt.Sprintf("%s%s 🛡 %s %s", bold, bgYellow, result.WAFDetected, reset))
+	if cfg.FilterCodes != "" {
+		row("Filter Code", yellow, cfg.FilterCodes)
 	}
-
-	if result.Method != "GET" {
-		tags = append(tags, fmt.Sprintf("%s%s%s%s", dim, cyan, result.Method, reset))
+	if cfg.FilterSize != "" {
+		row("Filter Size", yellow, cfg.FilterSize)
 	}
-
-	sizeStr := formatSize(result.Size)
-
-	tagStr := ""
-	if len(tags) > 0 {
-		tagStr = "  " + strings.Join(tags, " ")
+	if cfg.FilterWords != "" {
+		row("Filter Words", yellow, cfg.FilterWords)
 	}
-
-	fmt.Printf("%s  %s%s%s  %s%s%s%s\n",
-		badge,
-		dim, sizeStr, reset,
-		statusColor, result.URL, reset,
-		tagStr)
 }
 
 // printResultInline prints a result during live scanning with cursor management.
 // It clears the progress line, prints the result, then the progress resumes on next tick.
 func printResultInline(result *scanner.Result) {
-	// Clear current progress line
-	fmt.Printf("\r%s", clearLine)
+	if silent {
+		return
+	}
+	// Clear the animated progress line before printing (rich mode only).
+	if richUI {
+		fmt.Fprintf(out, "\r%s", clearLine)
+	}
 
 	statusColor := statusToColor(result.StatusCode)
 	statusBg := statusToBg(result.StatusCode)
@@ -153,7 +265,7 @@ func printResultInline(result *scanner.Result) {
 		tagStr = "  " + strings.Join(tags, " ")
 	}
 
-	fmt.Printf("%s  %s%s%s  %s%s%s%s\n",
+	fmt.Fprintf(out, "%s  %s%s%s  %s%s%s%s\n",
 		badge,
 		dim, sizeStr, reset,
 		statusColor, result.URL, reset,
@@ -175,13 +287,17 @@ func StartLiveUI(stats *scanner.Stats, eventCh <-chan scanner.ScanEvent, ctx con
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("\r%s", clearLine)
+			if richUI {
+				fmt.Fprintf(out, "\r%s", clearLine)
+			}
 			return
 
 		case event, ok := <-eventCh:
 			if !ok {
 				// Channel closed — scan complete.
-				fmt.Printf("\r%s", clearLine)
+				if richUI {
+					fmt.Fprintf(out, "\r%s", clearLine)
+				}
 				return
 			}
 
@@ -195,6 +311,9 @@ func StartLiveUI(stats *scanner.Stats, eventCh <-chan scanner.ScanEvent, ctx con
 			}
 
 		case <-ticker.C:
+			if !richUI {
+				continue // no animated progress line in plain/silent/non-TTY mode
+			}
 			elapsed := time.Since(stats.StartTime).Seconds()
 			if elapsed == 0 {
 				elapsed = 1
@@ -207,12 +326,12 @@ func StartLiveUI(stats *scanner.Stats, eventCh <-chan scanner.ScanEvent, ctx con
 				progress = float64(processed) / float64(total) * 100
 			}
 
-			barWidth := 20
+			barWidth := 22
 			filled := int(progress / 100 * float64(barWidth))
 			if filled > barWidth {
 				filled = barWidth
 			}
-			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+			bar := gradientBar(filled, barWidth)
 
 			s := spinner[frame%len(spinner)]
 			frame++
@@ -222,7 +341,7 @@ func StartLiveUI(stats *scanner.Stats, eventCh <-chan scanner.ScanEvent, ctx con
 			secrets := stats.GetSecrets()
 
 			// Build compact metrics
-			foundStr := fmt.Sprintf("%s%d%s", green, found, reset)
+			foundStr := fmt.Sprintf("%s%s%d%s", bold, green, found, reset)
 			extraMetrics := ""
 			if secrets > 0 {
 				extraMetrics += fmt.Sprintf("  %s🔑%d%s", magenta, secrets, reset)
@@ -231,99 +350,42 @@ func StartLiveUI(stats *scanner.Stats, eventCh <-chan scanner.ScanEvent, ctx con
 				extraMetrics += fmt.Sprintf("  %s✗%d%s", red, errors, reset)
 			}
 
+			// ETA from current throughput.
+			eta := "--:--"
+			if reqPerSec > 0 && total > processed {
+				eta = fmtDuration(float64(total-processed) / reqPerSec)
+			}
+
 			// Truncate URL for display
 			displayURL := lastURL
 			if displayURL == "" {
 				displayURL = stats.GetCurrentURL()
 			}
-			maxURLLen := 50
+			maxURLLen := 42
 			if len(displayURL) > maxURLLen {
 				displayURL = "…" + displayURL[len(displayURL)-maxURLLen+1:]
 			}
 
-			// Line 1: Progress bar + metrics
-			fmt.Printf("\r%s", clearLine)
-			fmt.Printf("  %s%s %s%s%s %s%.0f%%%s  %s%d%s req/s  Found: %s%s  %s%s%s",
-				cyan, s,
-				dim, bar, reset,
+			// Live status line: spinner · bar · pct · rate · eta · metrics · url
+			fmt.Fprintf(out, "\r%s", clearLine)
+			fmt.Fprintf(out, "  %s%s%s %s %s%3.0f%%%s  %s%d/s%s  %seta %s%s  %s  %s%s%s",
+				fg256(208), s, reset,
+				bar,
 				bold, progress, reset,
-				dim, int(reqPerSec), reset,
-				foundStr,
-				extraMetrics,
+				cyan, int(reqPerSec), reset,
+				dim, eta, reset,
+				foundStr+extraMetrics,
 				dim, displayURL, reset)
 		}
 	}
 }
 
-// StartProgressReporter is kept for backward compatibility but delegates to
-// a simplified version without event channel.
-func StartProgressReporter(stats *scanner.Stats, ctx context.Context) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	frame := 0
-
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Print("\r\033[K")
-			return
-		case <-ticker.C:
-			elapsed := time.Since(stats.StartTime).Seconds()
-			if elapsed == 0 {
-				elapsed = 1
-			}
-			reqPerSec := float64(stats.GetProcessed()) / elapsed
-			total := stats.GetTotal()
-			processed := stats.GetProcessed()
-			var progress float64
-			if total > 0 {
-				progress = float64(processed) / float64(total) * 100
-			}
-
-			barWidth := 20
-			filled := int(progress / 100 * float64(barWidth))
-			if filled > barWidth {
-				filled = barWidth
-			}
-			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-
-			s := spinner[frame%len(spinner)]
-			frame++
-
-			found := stats.GetFound()
-			secrets := stats.GetSecrets()
-			wafHits := stats.GetWAFHits()
-			errors := stats.GetErrors()
-
-			foundStr := fmt.Sprintf("%s%d%s", green, found, reset)
-			secretStr := ""
-			if secrets > 0 {
-				secretStr = fmt.Sprintf("  %s🔑 %d%s", magenta, secrets, reset)
-			}
-			wafStr := ""
-			if wafHits > 0 {
-				wafStr = fmt.Sprintf("  %s🛡 %d%s", yellow, wafHits, reset)
-			}
-			errStr := ""
-			if errors > 0 {
-				errStr = fmt.Sprintf("  %s✗ %d%s", red, errors, reset)
-			}
-
-			fmt.Printf("\r  %s%s %s%s%s %s%.0f%%%s  %s%d%s req/s  Found: %s%s%s%s",
-				cyan, s,
-				dim, bar, reset,
-				bold, progress, reset,
-				dim, int(reqPerSec), reset,
-				foundStr,
-				secretStr, wafStr, errStr)
-		}
+// PrintSummary displays the final scan summary with actionable metrics and a
+// severity breakdown of the findings.
+func PrintSummary(stats *scanner.Stats, results []scanner.Result) {
+	if silent {
+		return
 	}
-}
-
-// PrintSummary displays the final scan summary with actionable metrics.
-func PrintSummary(stats *scanner.Stats) {
 	elapsed := time.Since(stats.StartTime)
 	processed := stats.GetProcessed()
 	var reqPerSec float64
@@ -337,26 +399,57 @@ func PrintSummary(stats *scanner.Stats) {
 		errorRate = float64(errors) / float64(processed) * 100
 	}
 
-	fmt.Println()
-	fmt.Printf("  %s%s✔  Scan Complete%s\n", bold, green, reset)
-	fmt.Printf("  %s──────────────────────────────────────%s\n", dim, reset)
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "  %s%s✔  scan complete%s\n", bold, green, reset)
+	fmt.Fprintf(out, "  %s\n", gradient(strings.Repeat("─", 38)))
 
-	fmt.Printf("  %s%-14s%s %s%d%s\n", dim, "Requests", reset, white, processed, reset)
-	fmt.Printf("  %s%-14s%s %s%s%d%s\n", dim, "Findings", reset, bold, green, stats.GetFound(), reset)
+	row("Requests", white, fmt.Sprintf("%d", processed))
+	fmt.Fprintf(out, "  %s%-13s%s %s%s%d%s\n", dim, "Findings", reset, bold, green, stats.GetFound(), reset)
+
+	// Severity breakdown from the deduplicated result set.
+	if line := severityBreakdown(results); line != "" {
+		fmt.Fprintf(out, "  %s%-13s%s %s\n", dim, "By Severity", reset, line)
+	}
 
 	if stats.GetSecrets() > 0 {
-		fmt.Printf("  %s%-14s%s %s%s%d%s\n", dim, "Secrets", reset, bold, magenta, stats.GetSecrets(), reset)
+		fmt.Fprintf(out, "  %s%-13s%s %s%s%d%s\n", dim, "Secrets", reset, bold, magenta, stats.GetSecrets(), reset)
 	}
 	if stats.GetWAFHits() > 0 {
-		fmt.Printf("  %s%-14s%s %s%s%d%s\n", dim, "WAF Hits", reset, bold, yellow, stats.GetWAFHits(), reset)
+		fmt.Fprintf(out, "  %s%-13s%s %s%s%d%s\n", dim, "WAF Hits", reset, bold, yellow, stats.GetWAFHits(), reset)
 	}
 	if errors > 0 {
-		fmt.Printf("  %s%-14s%s %s%s%d%s  %s(%.1f%%)%s\n", dim, "Errors", reset, bold, red, errors, reset, dim, errorRate, reset)
+		fmt.Fprintf(out, "  %s%-13s%s %s%s%d%s  %s(%.1f%%)%s\n", dim, "Errors", reset, bold, red, errors, reset, dim, errorRate, reset)
 	}
 
-	fmt.Printf("  %s%-14s%s %s%s%s\n", dim, "Duration", reset, white, elapsed.Round(time.Millisecond), reset)
-	fmt.Printf("  %s%-14s%s %s%.0f req/s%s\n", dim, "Speed", reset, white, reqPerSec, reset)
-	fmt.Println()
+	row("Duration", white, elapsed.Round(time.Millisecond).String())
+	row("Speed", white, fmt.Sprintf("%.0f req/s", reqPerSec))
+	fmt.Fprintf(out, "  %s\n", gradient(strings.Repeat("─", 38)))
+	fmt.Fprintln(out)
+}
+
+// severityBreakdown returns a compact colored tally like
+// "2 critical · 1 high · 5 low", omitting zero buckets.
+func severityBreakdown(results []scanner.Result) string {
+	counts := map[string]int{}
+	for i := range results {
+		counts[results[i].Severity]++
+	}
+	order := []struct {
+		key, label, color string
+	}{
+		{scanner.SeverityCritical, "critical", red + bold},
+		{scanner.SeverityHigh, "high", fg256(208) + bold},
+		{scanner.SeverityMedium, "medium", yellow},
+		{scanner.SeverityLow, "low", blue},
+		{scanner.SeverityInfo, "info", dim + white},
+	}
+	var parts []string
+	for _, o := range order {
+		if n := counts[o.key]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s%d %s%s", o.color, n, o.label, reset))
+		}
+	}
+	return strings.Join(parts, dim+" · "+reset)
 }
 
 func statusToColor(code int) string {
@@ -398,4 +491,37 @@ func formatSize(bytes int) string {
 	default:
 		return fmt.Sprintf("%6dB", bytes)
 	}
+}
+
+// gradientBar renders a progress bar whose filled portion is tinted across the
+// flame ramp and whose remainder is dimmed.
+func gradientBar(filled, width int) string {
+	var b strings.Builder
+	for i := 0; i < width; i++ {
+		if i < filled {
+			idx := 0
+			if width > 1 {
+				idx = i * (len(flame) - 1) / (width - 1)
+			}
+			b.WriteString(fg256(flame[idx]))
+			b.WriteString("█")
+		} else {
+			b.WriteString(dim + "░")
+		}
+	}
+	b.WriteString(reset)
+	return b.String()
+}
+
+// fmtDuration renders a seconds count as m:ss (or h:mm:ss for long scans).
+func fmtDuration(seconds float64) string {
+	if seconds < 0 || seconds > 359999 {
+		return "--:--"
+	}
+	s := int(seconds)
+	h, m, sec := s/3600, (s%3600)/60, s%60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, sec)
+	}
+	return fmt.Sprintf("%d:%02d", m, sec)
 }
