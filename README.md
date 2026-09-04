@@ -1,31 +1,53 @@
+<div align="center">
+
 # 🌶 Capsaicin
 
-**Fast, intelligent web directory scanner built for security professionals.**
+### Fast, intelligent web content discovery engine — built for security professionals
 
-Capsaicin discovers hidden paths, leaked secrets, and WAF configurations with surgical precision — featuring smart calibration, context-aware retries, and graceful concurrency.
+*Surgical directory & asset discovery with smart calibration, ffuf-style matchers, multi-wordlist fuzzing, JA3/JA4 evasion, and adaptive intelligence.*
 
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](/.github/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/Coverage-75%25-brightgreen)]()
+[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](.github/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-71%25-brightgreen)]()
+[![Race](https://img.shields.io/badge/race--detector-clean-brightgreen)]()
+[![Report](https://img.shields.io/badge/report-jsonl%20·%20json%20·%20csv%20·%20html%20·%20sarif-blue)]()
+
+```text
+   🌶  C A P S A I C I N
+   ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   web content discovery  ·  v3.1  ·  fast · adaptive · evasive
+```
+
+</div>
 
 ---
 
-## ✨ Highlights
+## Why Capsaicin?
 
-| Feature | Description |
-|---------|-------------|
-| 🎯 **Smart Calibration** | Automatic 404 baseline to eliminate false positives |
-| 🔑 **Secret Detection** | 15 patterns with severity scoring and entropy analysis |
-| 🛡 **WAF Detection** | 16 signatures — header, cookie, and body-based |
-| 📊 **Risk Scoring** | Severity + confidence + tags on every finding |
-| 🔄 **Method Fuzzing** | Auto-tests PUT/POST/DELETE/PATCH on 405 responses |
-| 🚪 **Bypass Engine** | Header manipulation for 403/401 bypass attempts |
-| 🌳 **Recursive Scan** | Configurable depth-limited directory traversal |
-| ⚡ **Circuit Breaker** | Automatic backoff for failing targets |
-| 🔁 **Deduplication** | URL+Method dedup keeping highest-severity finding |
-| 📊 **Dual Reports** | JSON (versioned schema 3.1) + Interactive HTML |
-| 🚦 **CI Exit Codes** | `--fail-on` severity threshold for pipeline gates |
+Most directory brute-forcers stop at *"send words, print 200s."* Capsaicin treats discovery as an **intelligence problem**: it calibrates each target's noise floor, adapts its pacing to how the host pushes back, evades fingerprinting at the TLS layer, and enriches every finding with severity, tech tags, and leak/secret classification — then hands you a report your team can actually triage.
+
+- 🎯 **Zero-config accuracy** — automatic soft-404 calibration (size + word + line + SimHash) kills false positives, per-directory during recursion.
+- 🧩 **ffuf-grade fuzzing** — matchers/filters, the `FUZZ` keyword, and multi-wordlist **clusterbomb**/**pitchfork** modes.
+- 🕵️ **Findings that matter** — leaked `.git`/`.env`/backups, 26 secret patterns with **live validation**, directory listings, CORS/header posture, favicon (Shodan) hashes.
+- 🥷 **Evasion built in** — uTLS JA3/JA4 impersonation, HTTP/2 + HTTP/3, stochastic jitter, per-host circuit breaker, proxy rotation, custom DNS/SNI.
+- 🧠 **Adaptive** — a UCB1 bandit learns the best 403/401 bypass per host; AIMD congestion control paces the scan to avoid blocking.
+- 📦 **Pipeline-native** — clean stdout data channel, five report formats (incl. **SARIF** for GitHub code scanning), webhooks, resumable sessions, CI exit gates.
+
+---
+
+## ✨ Feature Matrix
+
+| Area | Capabilities |
+|------|--------------|
+| **Accuracy** | Smart 404 calibration · SimHash near-duplicate soft-404 · rolling recalibration · **per-directory** calibration · request-level dedup |
+| **Fuzzing** | `FUZZ` keyword · matchers/filters (`-mc/-ms/-mr/-fc/-fs/-fw`) · multi-wordlist **clusterbomb**/**pitchfork** · method + body (`-X`/`-d @file`) · recursion · virtual-host fuzzing |
+| **Discovery** | `--spider` (robots/sitemap/JS) · live JS/HTML link extraction · OpenAPI/Swagger/GraphQL spec mining · favicon fingerprint |
+| **Detection** | 26 secret patterns + entropy + **live verification** · `.git`/`.env`/backup/source-map/db-dump leaks · directory listing · CORS & security-header audit · 18 WAF signatures · 28 tech tags |
+| **Evasion** | uTLS JA3/JA4 (14 ClientHello profiles) · HTTP/2 + real HTTP/3 (QUIC) · coherent header profiles · Gaussian/Pareto jitter · proxy rotation · custom `--resolvers` / `--sni` |
+| **Bypass** | 403/401 header-manipulation engine · method fuzzing on 405 · per-host **UCB1 bandit** adaptive bypass |
+| **Resilience** | Per-host circuit breaker · **AIMD** adaptive pacing · global `--max-duration` · `--resume` checkpoints · deadlock-free unbounded queue with backpressure |
+| **Output** | `jsonl` · `json` (schema 3.1) · `csv` · **interactive HTML** · **SARIF** · live stdout streaming · Slack/Discord webhooks · CI `--fail-on` gates |
 
 ---
 
@@ -34,328 +56,273 @@ Capsaicin discovers hidden paths, leaked secrets, and WAF configurations with su
 ### Install
 
 ```bash
-go install github.com/abdulhalimaltuntas/scanner/cmd/capsaicin@latest
+go install github.com/abdulhalimaltuntas/capsaicin/cmd/capsaicin@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/capsaicin/scanner.git
-cd scanner
+git clone https://github.com/abdulhalimaltuntas/capsaicin.git
+cd capsaicin
 go build -o capsaicin ./cmd/capsaicin
 ```
 
-### Basic Scan
+### Basic scan
 
 ```bash
 capsaicin -u https://target.com -w wordlist.txt
 ```
 
-### Pipeline Mode
+### Pipeline mode
 
 ```bash
-cat targets.txt | capsaicin -w wordlist.txt -t 100
+cat targets.txt | capsaicin -w wordlist.txt -t 100 --output-format jsonl -o - | jq
 ```
+
+> **stdout is a pure data channel.** The banner, progress bar, and logs go to **stderr**, so `-o -` streams clean JSONL you can pipe straight into `jq`, `nuclei`, or your own tooling.
 
 ---
 
 ## 📖 Usage Examples
 
-### Authenticated Scan with Custom Headers
-
+**Authenticated + extensions**
 ```bash
-capsaicin -u https://api.target.com -w wordlist.txt \
-  -H "Authorization: Bearer eyJhbGci..." \
-  -H "Cookie: session=abc123"
+capsaicin -u https://app.target.com -w words.txt \
+  -H "Authorization: Bearer $TOKEN" -H "X-Env: staging" -e php,aspx,json
 ```
 
-### Recursive Scan with Rate Limiting
-
+**Matchers & filters (ffuf-style)**
 ```bash
-capsaicin -u https://target.com -w wordlist.txt \
-  --depth 3 \
-  --rate-limit 50 \
-  -t 20
+# keep only 200/301, drop the 8180-byte soft-404 and any 3-word body
+capsaicin -u https://target.com -w words.txt --match-code 200,301 --filter-size 8180 --filter-words 3
 ```
 
-### Full-Featured Scan with Reports
-
+**Multi-wordlist — clusterbomb**
 ```bash
-capsaicin -u https://target.com -w wordlist.txt \
-  -x php,html,js,txt \
-  --depth 2 \
-  --rate-limit 100 \
-  --timeout 15 \
-  --retries 3 \
-  -o results.json \
-  --html report.html \
-  -v
+capsaicin -u 'https://api.target.com/W1/W2' \
+  -w endpoints.txt:W1 -w ids.txt:W2 --mode clusterbomb
 ```
 
-### Safe Mode (No Bypass Attempts)
-
+**API fuzzing with POST body from a file**
 ```bash
-capsaicin -u https://target.com -w wordlist.txt --safe-mode
+capsaicin -u 'https://api.target.com/graphql' -X POST -d @query.json \
+  -H "Content-Type: application/json" --match-regex '"errors"'
 ```
 
-> **Note:** `--safe-mode` disables both bypass header injection (for 403/401 responses) and HTTP method fuzzing (for 405 responses). Use this when scanning production systems or when authorization testing is out of scope.
-
-### CI/CD Pipeline with Severity Gate
-
+**Full-intelligence recon**
 ```bash
-# Fail the pipeline if any high or critical findings exist
-capsaicin -u https://staging.example.com -w wordlist.txt \
-  --fail-on high -o results.json --rate-limit 20
-echo "Exit code: $?"
-# Exit 0 = no findings at threshold, Exit 2 = threshold exceeded
+capsaicin -u https://target.com -w words.txt \
+  --mode dynamic --spider --extract-paths \
+  --adaptive-rate --headless \
+  --h2 --tls-impersonate chrome \
+  --verify-secrets --max-duration 900 \
+  --output-format html -o report.html
 ```
 
-### Severity-Filtered Scan
-
+**Virtual-host discovery**
 ```bash
-# Only fail on critical findings (secrets, bypasses with secrets)
-capsaicin -u https://target.com -w wordlist.txt --fail-on critical -o results.json
+capsaicin -u https://10.0.0.5/ -w subdomains.txt --vhost
 ```
 
-### Environment Variables
-
+**CI gate + SARIF for GitHub code scanning**
 ```bash
-export CAPSAICIN_THREADS=20
-export CAPSAICIN_RATE_LIMIT=50
-export CAPSAICIN_TIMEOUT=15
-export CAPSAICIN_LOG_LEVEL=debug
+capsaicin -u https://staging.target.com -w words.txt \
+  --output-format sarif -o capsaicin.sarif --fail-on high --silent
+# exit 2 → the pipeline fails when a high/critical finding exists
+```
 
-capsaicin -u https://target.com -w wordlist.txt
+**Resumable long scan through rotating proxies**
+```bash
+capsaicin -u https://target.com -w huge.txt \
+  --proxy-file proxies.txt --proxy-strategy round_robin \
+  --resolvers 1.1.1.1,8.8.8.8 --resume session.state --rate-limit 50
 ```
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration Reference
 
-### Required Flags
-
-| Flag | Description |
-|------|-------------|
-| `-u` | Target URL (or pipe via `stdin`) |
-| `-w` | Path to wordlist file |
-
-### Optional Flags
+### Target & Request
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-t` | `50` | Concurrent threads |
-| `-x` | — | Extensions (comma-separated: `php,html,txt`) |
-| `-H` | — | Custom header (repeatable) |
-| `-v` | `false` | Verbose output |
-| `-o` | — | JSON output file |
-| `--html` | — | HTML report file |
-| `--timeout` | `10` | Request timeout (seconds) |
-| `--depth` | `0` | Recursive scan depth (0 = disabled) |
-| `--rate-limit` | `0` | Max req/s per host (0 = unlimited) |
-| `--retries` | `2` | Retry attempts for failed requests |
-| `--max-response-mb` | `10` | Max response body size (MB) |
-| `--log-level` | `info` | Log level: `debug` `info` `warn` `error` |
-| `--dry-run` | `false` | Show scan plan without executing |
-| `--safe-mode` | `false` | Disable bypass attempts and method fuzzing |
-| `--fail-on` | — | Exit code 2 if severity ≥ threshold (`critical` `high` `medium` `low` `info`) |
-| `--allow` | — | Allowed domain pattern (repeatable) |
-| `--deny` | — | Denied domain pattern (repeatable) |
+| `-u` | — | Target URL (supports the `FUZZ` keyword); or pipe targets via **stdin** |
+| `-w` | — | Wordlist `path[:KEYWORD]`, **repeatable** for clusterbomb/pitchfork |
+| `-X` | `GET` | HTTP method for the primary request |
+| `-d` | — | POST body (`@file` reads the body from a file) |
+| `-e` | — | Extensions, comma-separated (`php,html,txt`) |
+| `-H` | — | Custom header `"Name: Value"` (repeatable) |
+| `--mode` | `sniper` | `sniper` · `clusterbomb` · `pitchfork` · `dynamic` (spider + mutation) |
 
-> **Tip:** All numeric flags can also be set via environment variables prefixed with `CAPSAICIN_`.
+### Matchers & Filters
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--match-code` | `200-299,301,302,307,401,403,405` | Keep only these status codes |
+| `--match-size` / `--match-regex` | — | Keep only matching response size / body regex |
+| `--filter-code` / `--filter-size` / `--filter-words` | — | Drop matching responses (**filters win over matchers**) |
+
+### Engine & Performance
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-t` | `40` | Concurrent workers |
+| `--timeout` | `10` | Per-request timeout (seconds) |
+| `--rate-limit` | `0` | Max req/s per host (0 = unlimited) |
+| `--depth` | `0` | Recursive scan depth (per-directory calibrated) |
+| `--retries` | `2` | Retry attempts for failed requests |
+| `--max-duration` | `0` | Whole-scan deadline in seconds |
+| `--max-response-mb` | `10` | Max response body read (MB) |
+| `--resume` | — | Session file: skip already-scanned endpoints, append new ones |
+
+### Discovery & Detection
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--spider` | `false` | Crawl robots/sitemap/JS + probe OpenAPI/Swagger/GraphQL specs |
+| `--extract-paths` | `false` | Scrape HTML/JS responses for new endpoints mid-scan |
+| `--extract-depth` | `2` | Max recursion depth for extracted paths |
+| `--auto-calibrate` | `false` | Rolling recalibration every `--recal-interval` requests |
+| `--vhost` | `false` | Virtual-host fuzzing (fuzz the `Host` header) |
+| `--verify-secrets` | `false` | Live-validate detected secrets against their provider (read-only) |
+| `--safe-mode` | `false` | Disable bypass attempts and method fuzzing |
+| `--adaptive-rate` | `false` | Per-host UCB1 bandit bypass + AIMD auto-slowdown |
+| `--headless` | `false` | Solve JS challenges (Cloudflare/DataDome/reCAPTCHA) via a browser |
+
+### Evasion & Network
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--h2` | `false` | Opt-in uTLS (JA3/JA4) HTTP/2 impersonation — auto-falls back to HTTP/1.1 for `http://` and h1-only hosts |
+| `--h3` | `false` | Real HTTP/3 (QUIC) transport |
+| `--tls-impersonate` | `random` | `chrome` · `firefox` · `safari` · `edge` · `random` · `none` |
+| `--jitter` | `moderate` | `aggressive` · `moderate` · `stealth` · `paranoid` |
+| `--proxy` / `--proxy-file` | — | Single proxy or a rotating list |
+| `--proxy-strategy` | `random` | `round_robin` · `random` · `failover` |
+| `--resolvers` | — | Custom DNS resolver(s) `host[:port]` (repeatable) |
+| `--sni` | — | TLS SNI override |
+| `--cb-threshold` / `--cb-reset` | `20` / `30` | Circuit-breaker failures before opening / seconds open |
+
+### Output & Integrations
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-o` | — | Output file (`-` = stdout) |
+| `--output-format` | `jsonl` | `jsonl` · `json` · `csv` · `html` · `sarif` |
+| `--webhook` | — | Slack/Discord/generic URL notified of findings |
+| `--webhook-min-severity` | `high` | Minimum severity to notify |
+| `--fail-on` | — | Exit code 2 if any finding ≥ threshold |
+| `--allow` / `--deny` | — | Host scope with `*` wildcard (repeatable) |
+| `--silent` / `--no-color` | `false` | Suppress UI / disable color (also honors `NO_COLOR` & non-TTY) |
+| `--log-level` / `--debug` | `info` | `--debug` reveals **why** requests fail (DNS/TLS/timeout/CB) |
+
+> 💡 Key numeric flags are also settable via `CAPSAICIN_`-prefixed environment variables (e.g. `CAPSAICIN_THREADS=100`).
 
 ---
 
 ## 🏗 Architecture
 
-```
-capsaicin/
-├── cmd/capsaicin/            # Entry point + signal handling
-├── internal/
-│   ├── config/               # Flag parsing, validation, env vars
-│   ├── scanner/
-│   │   ├── engine.go         # Lifecycle orchestration + context propagation
-│   │   ├── worker.go         # Request processing + bypass + method fuzzing
-│   │   ├── task.go           # Task & Result types
-│   │   └── stats.go          # Atomic metrics
-│   ├── detection/
-│   │   ├── secrets.go        # 15 patterns + severity + entropy scoring
-│   │   ├── waf.go            # 16 WAF signatures + body detection
-│   │   └── calibration.go    # Response fingerprinting
-│   ├── transport/
-│   │   └── client.go         # HTTP client + rate limiter + circuit breaker
-│   ├── reporting/
-│   │   ├── json.go           # Versioned JSON (schema 3.0)
-│   │   └── html.go           # Interactive HTML reports
-│   └── ui/
-│       └── output.go         # Colorful terminal output
-├── .github/workflows/ci.yml  # CI pipeline
-└── .golangci.yml             # Linter config
+```mermaid
+flowchart LR
+    CLI[CLI / stdin] --> CFG[Config + validation]
+    CFG --> ENG[Scan Engine]
+
+    subgraph ENG_INT [Engine]
+        CAL[Calibration<br/>soft-404 + SimHash] --> Q[Unbounded queue<br/>+ backpressure]
+        Q --> W[Worker pool]
+        W --> MF[Matchers / Filters]
+        W --> REC[Recursion<br/>per-dir calibrated]
+        W --> EXT[Live extraction / Spider]
+    end
+
+    ENG --> TR[Transport]
+    subgraph TR_INT [Transport]
+        H1[HTTP/1.1] & H2[uTLS HTTP/2] & H3[HTTP/3 QUIC]
+        RL[Rate limit] --> CB[Circuit breaker] --> JT[Jitter] --> PX[Proxy rotation]
+    end
+
+    W --> DET[Detection]
+    subgraph DET_INT [Detection]
+        SEC[Secrets + verify] & LEAK[Leaks / listings] & WAF[WAF] & TECH[Tech + favicon] & HDR[CORS / headers]
+    end
+
+    W --> POL[Policy<br/>UCB1 bandit + AIMD]
+    DET --> DEDUP[Dedup + scoring]
+    DEDUP --> REP[Reporting<br/>jsonl / json / csv / html / sarif]
+    DEDUP --> HOOK[Webhook]
 ```
 
-### Request Flow
+**Design notes**
 
-```
-CLI Input → Config Validation → Engine.RunContext(ctx)
-    ↓
-Calibration (per target) → Worker Pool
-    ↓
-Worker: makeRequest → Calibration Filter → Detection Pipeline
-    ↓                                          ↓
-405? → Method Fuzzing               Secret Detection (entropy)
-403? → Bypass Attempts              WAF Detection (header+body)
-    ↓
-Results Channel → Reporter (JSON/HTML)
-```
+- **Deadlock-free queue.** An unbounded, condition-variable queue with initial-feed backpressure — workers never block on fan-out (recursion/extraction), and huge wordlists don't materialize all at once.
+- **One transport pipeline.** Calibration, spider, and every scan request share the same rate-limit / circuit-breaker / jitter / uTLS path, so evasion and pacing stay consistent.
+- **Single source of truth for findings.** A deduplicator keeps one entry per `URL+Method` (highest severity, first-seen order); the report is read back from it, never from a parallel slice.
 
 ---
 
 ## 🔑 Detection Capabilities
 
-### Secret Patterns (15)
+| Category | Coverage |
+|----------|----------|
+| **Secrets** (26 patterns) | AWS · GCP · GitHub · GitLab · Slack · Stripe · OpenAI · JWT · Private Keys · DB connection strings · Discord · Telegram · SendGrid · Twilio · Shopify · NPM · and more — with Shannon-entropy gating and opt-in **live validation** |
+| **Exposures** | `.git` / `.svn` / `.hg` · `.env` · backups (`.bak`/`.old`/`~`/…) · source maps · DB dumps · `wp-config`/`web.config`/`.htpasswd`/SSH keys · directory listings |
+| **Posture** | `Access-Control-Allow-Origin: *` · missing HSTS / X-Frame-Options / nosniff |
+| **WAF** (18 signatures) | Cloudflare · Akamai · Imperva · AWS WAF/Shield · F5 · Sucuri · DataDome · Wordfence · ModSecurity · Fastly · Incapsula · … (header, cookie & body based) |
+| **Fingerprinting** | 28 server/framework tags · favicon **mmh3** hash for Shodan/Censys pivoting |
 
-| Pattern | Severity | Entropy Check |
-|---------|----------|:---:|
-| AWS Access Key | 🔴 Critical | — |
-| AWS Secret Key | 🔴 Critical | — |
-| Private Key (RSA/EC/DSA) | 🔴 Critical | — |
-| GitHub Token | 🔴 Critical | — |
-| Stripe Secret Key | 🔴 Critical | — |
-| Database Connection String | 🔴 Critical | — |
-| JWT Token | 🟠 High | — |
-| Slack Token | 🟠 High | — |
-| Google API Key | 🟠 High | — |
-| Heroku API Key | 🟠 High | — |
-| Mailgun API Key | 🟠 High | — |
-| Twilio API Key | 🟠 High | — |
-| Generic API Key | 🟡 Medium | ✓ |
-| Generic Password | 🟡 Medium | ✓ |
-| Stripe Publishable Key | 🟢 Low | — |
+### Risk scoring
 
-### WAF Signatures (16)
-
-Cloudflare · AWS WAF · Akamai · Imperva · F5 BigIP · Sucuri · StackPath · Wordfence · Barracuda · ModSecurity · Fortinet FortiWeb · AWS Shield · DenyAll · Cloudfront · Fastly · Varnish
-
-### Risk Scoring
-
-Every finding is automatically enriched with:
-
-| Field | Values | Description |
-|-------|--------|-------------|
-| `severity` | `critical` `high` `medium` `low` `info` | Risk level based on finding type |
-| `confidence` | `confirmed` `firm` `tentative` | Evidence strength |
-| `tags` | `secret` `bypass` `method-fuzz` `directory` `access-control` `waf` | Classification labels |
-
-**Severity Assignment Rules:**
-
-| Finding Type | Severity | Confidence |
-|-------------|----------|------------|
-| Secret detected (AWS, private key, DB conn) | 🔴 Critical | Confirmed |
-| Secret detected (JWT, Slack, Google) | 🟠 High | Confirmed |
-| Bypass success (403→200) | 🟠 High | Firm |
-| Method fuzz success (405→200) | 🟡 Medium | Firm |
-| Directory listing | 🟢 Low | Tentative |
-| Access control (401/403) | 🟢 Low | Tentative |
-| Standard 200 response | ⚪ Info | Tentative |
+Every finding carries a **severity** (`critical`→`info`), **confidence** (`confirmed`/`firm`/`tentative`), and **tags**. Verified secrets and VCS/`.env` exposures escalate to `critical`; bypasses and backups to `high`; directory listings, source maps and CORS wildcards to `medium`.
 
 ---
 
-## 🚦 Exit Codes & CI Integration
+## 🚦 CI/CD Integration
 
-| Exit Code | Meaning |
-|-----------|--------|
-| `0` | Scan completed, no findings meet threshold |
-| `1` | Scan error (invalid config, network failure) |
-| `2` | Findings meet `--fail-on` severity threshold |
+```yaml
+# GitHub Actions — fail the build on high/critical findings and upload SARIF
+- name: Capsaicin scan
+  run: |
+    capsaicin -u https://staging.example.com -w words.txt \
+      --output-format sarif -o capsaicin.sarif \
+      --fail-on high --silent
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: capsaicin.sarif
+```
 
-### CI/CD Examples
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | No findings at or above `--fail-on` threshold |
+| `1` | Scan error (bad config, unreachable target) |
+| `2` | Findings met the `--fail-on` threshold |
+
+---
+
+## 🧪 Development
 
 ```bash
-# GitHub Actions / GitLab CI — fail on critical
-capsaicin -u $TARGET_URL -w wordlist.txt --fail-on critical -o results.json
-
-# Fail on high or above
-capsaicin -u $TARGET_URL -w wordlist.txt --fail-on high -o results.json || exit 1
-
-# Safe production scan with rate limiting
-capsaicin -u $PROD_URL -w wordlist.txt \
-  --safe-mode --rate-limit 10 -t 5 \
-  --fail-on critical -o scan-$(date +%s).json
+go build ./...                 # build
+go test ./...                  # unit + integration tests
+go test -race ./...            # race detector (clean)
+go test ./... -cover           # coverage (~71%)
+go vet ./... && gofmt -l .     # static analysis + formatting
 ```
 
-### JSON Report Schema (v3.1)
-
-The `--output` JSON report now includes:
-
-```json
-{
-  "schema_version": "3.1",
-  "run_id": "a1b2c3d4e5f6",
-  "metadata": {
-    "start_time": "2025-01-01T00:00:00Z",
-    "end_time": "2025-01-01T00:01:30Z",
-    "duration": "1m30s",
-    "target_count": 1,
-    "targets_hash": "abc123...",
-    "total_results": 42,
-    "version": "3.1.0"
-  },
-  "summary": {
-    "total_findings": 42,
-    "by_severity": {"critical": 1, "high": 3, "medium": 5, "low": 10, "info": 23},
-    "secrets_found": 1,
-    "critical_findings": 2,
-    "max_severity": "critical"
-  },
-  "results": [...]
-}
-```
+CI runs build, tests, race detector, a coverage gate, `golangci-lint`, `govulncheck`, and `gosec` across Go 1.26 and stable.
 
 ---
 
-## 🧪 Testing
+## ⚖️ Responsible Use
 
-```bash
-# All tests
-go test ./... -v
-
-# Race detector
-go test ./... -race
-
-# Coverage report
-go test ./... -coverprofile=coverage.out
-go tool cover -html=coverage.out
-
-# Benchmarks
-go test ./internal/detection -bench=. -benchmem
-go test ./internal/transport -bench=. -benchmem
-
-# Fuzz testing
-go test ./internal/detection -fuzz=FuzzDetectSecrets -fuzztime=30s
-```
+Capsaicin is built for **authorized** security testing — your own assets, engagements with written permission, CTFs, and lab environments. Scanning systems you do not own or have explicit permission to test may be illegal. You are solely responsible for how you use this tool. The authors assume no liability for misuse or damage.
 
 ---
 
-## ⚠️ Responsible Use
+## 🤝 Contributing
 
-> **This tool is designed for authorized security testing only.**
-
-- ✅ Always obtain written authorization before scanning
-- ✅ Use `--rate-limit` to avoid overloading targets
-- ✅ Use `--safe-mode` when bypass attempts are not appropriate
-- ✅ Report vulnerabilities responsibly through proper channels
-- ❌ Never scan systems without explicit permission
-- ❌ Never use findings for unauthorized access
-
-### Recommended Rate Limits
-
-| Environment | Rate Limit | Threads |
-|-------------|-----------|---------|
-| Production | `10–20` | `5–10` |
-| Staging | `50–100` | `20–50` |
-| Local / Dev | Unlimited | `50–100` |
-
----
+Issues and pull requests are welcome. Please keep changes `gofmt`-clean, add tests for new behavior, and make sure `go test -race ./...` stays green.
 
 ## 📄 License
 
-MIT — Use responsibly and legally. This tool is provided as-is for authorized security testing only.
+[MIT](LICENSE) © Capsaicin contributors
