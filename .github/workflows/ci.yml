@@ -51,8 +51,11 @@ jobs:
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v4
+        env:
+          GOTOOLCHAIN: go1.26.8
         with:
           version: latest
+          install-mode: goinstall
 
   security:
     runs-on: ubuntu-latest

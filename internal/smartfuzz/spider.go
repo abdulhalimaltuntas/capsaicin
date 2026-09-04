@@ -109,6 +109,9 @@ func (s *Spider) fetch(ctx context.Context, url string) (string, error) {
 		if resp == nil || resp.StatusCode != 200 {
 			return "", fmt.Errorf("status for %s", url)
 		}
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		return string(body), nil
 	}
 

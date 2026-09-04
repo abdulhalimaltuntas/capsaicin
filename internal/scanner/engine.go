@@ -85,6 +85,9 @@ func (e *Engine) probeVHostBaseline(ctx context.Context, target string) vhBase {
 	if err != nil {
 		return vhBase{}
 	}
+	if resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	return vhBase{status: resp.StatusCode, size: len(body)}
 }
 
