@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 func TestRenderers(t *testing.T) {

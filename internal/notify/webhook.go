@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 var webhookClient = &http.Client{Timeout: 10 * time.Second}

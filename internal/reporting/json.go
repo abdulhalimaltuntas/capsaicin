@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 type ScanReport struct {

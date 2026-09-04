@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
 )
 
 func BenchmarkClientDo_Success(b *testing.B) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 func testResults() []scanner.Result {

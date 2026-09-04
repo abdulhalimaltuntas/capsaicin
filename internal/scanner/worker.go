@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
-	"github.com/capsaicin/scanner/internal/detection"
-	"github.com/capsaicin/scanner/internal/headless"
-	"github.com/capsaicin/scanner/internal/logging"
-	"github.com/capsaicin/scanner/internal/policy"
-	"github.com/capsaicin/scanner/internal/transport"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/detection"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/headless"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/logging"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/policy"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/transport"
 )
 
 var userAgents = []string{

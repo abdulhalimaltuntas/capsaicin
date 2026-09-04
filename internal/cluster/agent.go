@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 // Agent is a remote worker that connects to a Master, pulls scan chunks,

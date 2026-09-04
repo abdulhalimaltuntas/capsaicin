@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
 	"golang.org/x/time/rate"
 )
 

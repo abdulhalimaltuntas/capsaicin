@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 // GenerateHTML renders an interactive standalone report: stat cards, severity

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
-	"github.com/capsaicin/scanner/internal/headless"
-	"github.com/capsaicin/scanner/internal/smartfuzz"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/headless"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/smartfuzz"
 )
 
 // extractState guards on-the-fly link extraction so a path discovered in one

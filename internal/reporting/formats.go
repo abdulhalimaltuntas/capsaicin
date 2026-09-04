@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 // SaveJSONL writes one JSON object per line (JSON Lines / NDJSON) — the format

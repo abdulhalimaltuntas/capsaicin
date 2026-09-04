@@ -12,12 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
-	"github.com/capsaicin/scanner/internal/logging"
-	"github.com/capsaicin/scanner/internal/notify"
-	"github.com/capsaicin/scanner/internal/reporting"
-	"github.com/capsaicin/scanner/internal/scanner"
-	"github.com/capsaicin/scanner/internal/ui"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/logging"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/notify"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/reporting"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/ui"
 	"github.com/spf13/cobra"
 )
 

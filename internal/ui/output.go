@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 // Cursor / line control (never suppressed — needed even without color).

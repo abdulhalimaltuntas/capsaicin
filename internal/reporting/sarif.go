@@ -3,7 +3,7 @@ package reporting
 import (
 	"encoding/json"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 // SARIF (Static Analysis Results Interchange Format) 2.1.0 output lets findings
@@ -92,7 +92,7 @@ func SaveSARIF(results []scanner.Result, filename string) error {
 			Tool: sarifTool{Driver: sarifDriver{
 				Name:           "Capsaicin",
 				Version:        "3.1.0",
-				InformationURI: "https://github.com/capsaicin/scanner",
+				InformationURI: "https://github.com/abdulhalimaltuntas/capsaicin",
 				Rules:          rules,
 			}},
 			Results: sr,

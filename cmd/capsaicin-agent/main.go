@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/capsaicin/scanner/internal/cluster"
-	"github.com/capsaicin/scanner/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/cluster"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
 )
 
 func main() {

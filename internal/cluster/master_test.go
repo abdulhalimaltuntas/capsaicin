@@ -3,7 +3,7 @@ package cluster
 import (
 	"testing"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 func newTestMaster(words []string, chunkSize int) *Master {

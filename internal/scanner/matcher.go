@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/capsaicin/scanner/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
 )
 
 // Matcher decides whether a response is surfaced as a finding, implementing the

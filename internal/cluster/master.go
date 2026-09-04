@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 // Master coordinates distributed scanning across multiple remote agents.

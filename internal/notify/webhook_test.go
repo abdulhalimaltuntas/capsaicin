@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/capsaicin/scanner/internal/scanner"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 )
 
 func TestSendWebhook(t *testing.T) {

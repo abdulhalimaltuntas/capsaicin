@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/capsaicin/scanner/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
 )
 
 func TestClientRetry(t *testing.T) {

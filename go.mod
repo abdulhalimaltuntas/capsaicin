@@ -1,4 +1,4 @@
-module github.com/capsaicin/scanner
+module github.com/abdulhalimaltuntas/capsaicin
 
 go 1.26
 

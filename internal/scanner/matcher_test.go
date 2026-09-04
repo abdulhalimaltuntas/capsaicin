@@ -3,7 +3,7 @@ package scanner
 import (
 	"testing"
 
-	"github.com/capsaicin/scanner/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
 )
 
 func TestMatcher_FiltersAndMatchers(t *testing.T) {
