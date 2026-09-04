@@ -373,6 +373,9 @@ func (wc *workerContext) probeVHost(ctx context.Context, task Task, rng *rand.Ra
 	if err != nil {
 		return
 	}
+	if resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 
 	b := wc.vhostBaseline[task.TargetURL]
 	// Same status and near-identical size as the default host → catch-all, skip.
@@ -549,6 +552,9 @@ func (wc *workerContext) makeRequest(ctx context.Context, url, method, body, use
 	if err != nil {
 		return nil, "", err
 	}
+	if resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 
 	bodyContent := string(respBody)
 	result := &Result{
@@ -627,6 +633,9 @@ func bypassWithHeaders(ctx context.Context, url, method, userAgent string, extra
 	resp, body, err := client.DoContext(ctx, req, cfg.RateLimit)
 	if err != nil {
 		return nil, ""
+	}
+	if resp.Body != nil {
+		_ = resp.Body.Close()
 	}
 
 	bodyContent := string(body)

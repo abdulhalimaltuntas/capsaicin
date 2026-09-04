@@ -489,6 +489,9 @@ func fetchSignature(ctx context.Context, url string, fetch Fetcher, headers map[
 	if err != nil || resp == nil {
 		return nil
 	}
+	if resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 
 	bodyStr := string(body)
 	return &ResponseSignature{

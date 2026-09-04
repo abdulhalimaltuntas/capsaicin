@@ -290,6 +290,7 @@ func TestClient_HTTPClient(t *testing.T) {
 
 	if httpClient == nil {
 		t.Error("expected non-nil http client")
+		return
 	}
 
 	if httpClient.Timeout != 10*time.Second {
