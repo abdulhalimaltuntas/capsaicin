@@ -52,6 +52,14 @@ type workerContext struct {
 	policy        *policy.PolicyEngine      // adaptive bandit; nil = disabled
 	solver        *headless.ChallengeSolver // JS challenge solver; nil = disabled
 	sessions      *sessionStore             // solved-cookie cache; nil = disabled
+
+	// Optional active-testing side channels. Each dedup set is non-nil only when
+	// its feature flag is set, keeping the plain-scan hot path untouched.
+	learnSeen       *markSet // --learn dedup (source URLs + harvested words)
+	backupSeen      *markSet // --backup-probe dedup (per discovered file)
+	paramSeen       *markSet // --param-fuzz dedup (per URL)
+	probeSeen       *markSet // --active-probes dedup (per URL)
+	paramCandidates []string // candidate params for --param-fuzz
 }
 
 // buildURL resolves a task into a request URL. When the target contains the
@@ -150,6 +158,10 @@ func worker(ctx context.Context, wc *workerContext, rng *rand.Rand, done chan<- 
 			continue
 		case taskVHost:
 			wc.probeVHost(ctx, task, rng)
+			wc.taskWg.Done()
+			continue
+		case taskTakeover:
+			wc.probeTakeover(ctx, task.TargetURL, rng)
 			wc.taskWg.Done()
 			continue
 		}
@@ -285,13 +297,29 @@ func worker(ctx context.Context, wc *workerContext, rng *rand.Rand, done chan<- 
 				}
 			}
 
-			if !wc.cfg.SafeMode && (result.StatusCode == 403 || result.StatusCode == 401) {
+			if !wc.cfg.SafeMode && !wc.cfg.NoBypass && (result.StatusCode == 403 || result.StatusCode == 401) {
 				wc.attemptBypass(ctx, url, result.Method, userAgent, task.TargetURL)
 			}
 
 			// On-the-fly endpoint discovery from HTML/JS bodies.
 			if wc.extract != nil && result.StatusCode == 200 && looksLikeHTML(bodyContent) {
 				wc.extract.harvest(wc.queue, wc.stats, wc.taskWg, task.TargetURL, bodyContent, task.ExtDepth+1)
+			}
+
+			// Adaptive word learning: mine this body for new fuzz candidates.
+			if result.StatusCode == 200 {
+				wc.maybeLearn(url, task.TargetURL, bodyContent)
+			}
+
+			// Forgotten-backup probing for discovered files.
+			if result.StatusCode == 200 || result.StatusCode == 403 {
+				wc.maybeBackups(task, url)
+			}
+
+			// Active testing on live endpoints: hidden parameters + vuln probes.
+			if result.StatusCode == 200 {
+				wc.maybeParamFuzz(ctx, url, userAgent, task.TargetURL)
+				wc.maybeActiveProbes(ctx, url, userAgent, task.TargetURL)
 			}
 
 			if wc.cfg.MaxDepth > 0 && task.Depth < wc.cfg.MaxDepth && isDirectory(result) {
@@ -455,6 +483,10 @@ func (wc *workerContext) methodFuzz(ctx context.Context, url, userAgent, targetU
 // it uses the per-host UCB1 bandit to pick and learn header/method strategies;
 // otherwise it falls back to the fixed spoofed-header set.
 func (wc *workerContext) attemptBypass(ctx context.Context, url, method, userAgent, targetURL string) {
+	// Path-mutation bypass (case, //, /./, ..;/, trailing chars) complements the
+	// header-injection strategies and defeats a different class of edge ACL.
+	wc.tryPathBypasses(ctx, url, userAgent, targetURL)
+
 	if wc.policy != nil {
 		wc.banditBypass(ctx, url, method, userAgent, targetURL)
 		return
@@ -575,6 +607,11 @@ func (wc *workerContext) makeRequest(ctx context.Context, url, method, body, use
 		result.WAFDetected = wafName
 	} else if wafName := detection.DetectWAFFromBody(bodyContent, resp.StatusCode); wafName != "" {
 		result.WAFDetected = wafName
+	}
+
+	// CVE correlation: map fingerprinted server/framework versions to known CVEs.
+	for _, cve := range detection.CVEsForServer(result.Server + " " + result.PoweredBy) {
+		result.Tags = appendUnique(result.Tags, "cve:"+cve.ID)
 	}
 
 	// Security-header audit: cors-wildcard is per-endpoint; posture tags

@@ -1,0 +1,28 @@
+id: phpinfo-disclosure
+info:
+  name: phpinfo() page exposed
+  author: capsaicin
+  severity: medium
+  tags: exposure,php,info
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}/phpinfo.php"
+      - "{{BaseURL}}/info.php"
+      - "{{BaseURL}}/test.php"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+      - type: word
+        part: body
+        condition: and
+        words:
+          - "PHP Version"
+          - "phpinfo()"
+    extractors:
+      - type: regex
+        part: body
+        regex:
+          - "PHP Version ([0-9.]+)"

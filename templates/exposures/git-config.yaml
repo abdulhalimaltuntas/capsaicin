@@ -1,0 +1,28 @@
+id: git-config-exposure
+info:
+  name: Exposed .git/config
+  author: capsaicin
+  severity: high
+  tags: exposure,git,config
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.git/config"
+      - "{{BaseURL}}/.git/HEAD"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+      - type: word
+        part: body
+        condition: or
+        words:
+          - "[core]"
+          - "ref: refs/"
+          - "repositoryformatversion"
+    extractors:
+      - type: regex
+        part: body
+        regex:
+          - "url = (.+)"

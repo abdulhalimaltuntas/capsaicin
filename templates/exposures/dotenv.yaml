@@ -1,0 +1,30 @@
+id: dotenv-exposure
+info:
+  name: Exposed .env file
+  author: capsaicin
+  severity: critical
+  tags: exposure,env,secret
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.env"
+      - "{{BaseURL}}/.env.local"
+      - "{{BaseURL}}/.env.production"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+      - type: regex
+        part: body
+        condition: or
+        regex:
+          - "(?m)^[A-Z0-9_]+=.+"
+          - "APP_KEY="
+          - "DB_(HOST|PASSWORD|USERNAME)="
+          - "AWS_(ACCESS|SECRET)"
+      - type: word
+        part: header
+        negative: true
+        words:
+          - "text/html"

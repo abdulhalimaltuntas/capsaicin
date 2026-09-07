@@ -41,13 +41,16 @@ Most directory brute-forcers stop at *"send words, print 200s."* Capsaicin treat
 | Area | Capabilities |
 |------|--------------|
 | **Accuracy** | Smart 404 calibration · SimHash near-duplicate soft-404 · rolling recalibration · **per-directory** calibration · request-level dedup |
-| **Fuzzing** | `FUZZ` keyword · matchers/filters (`-mc/-ms/-mr/-fc/-fs/-fw`) · multi-wordlist **clusterbomb**/**pitchfork** · method + body (`-X`/`-d @file`) · recursion · virtual-host fuzzing |
-| **Discovery** | `--spider` (robots/sitemap/JS) · live JS/HTML link extraction · OpenAPI/Swagger/GraphQL spec mining · favicon fingerprint |
-| **Detection** | 26 secret patterns + entropy + **live verification** · `.git`/`.env`/backup/source-map/db-dump leaks · directory listing · CORS & security-header audit · 18 WAF signatures · 28 tech tags |
+| **Fuzzing** | `FUZZ` keyword · matchers/filters (`-mc/-ms/-mr/-fc/-fs/-fw`) · multi-wordlist **clusterbomb**/**pitchfork** · method + body (`-X`/`-d @file`) · recursion · virtual-host fuzzing · **embedded wordlists** (`--builtin`) |
+| **Discovery** | `--spider` (robots/sitemap/JS) · live JS/HTML link extraction · OpenAPI/Swagger/GraphQL spec mining · favicon fingerprint · **passive seeding** (wayback/OTX/urlscan/crt.sh) · **adaptive word learning** · on-the-fly **backup probing** |
+| **Active testing** | **Hidden parameter discovery** (Arjun-style) · **open-redirect / CRLF / LFI / SSRF** probes · **Nuclei-style YAML template engine** |
+| **Detection** | 26 secret patterns + entropy + **live verification** · `.git`/`.env`/backup/source-map/db-dump leaks · directory listing · CORS & security-header audit · 18 WAF signatures · 28 tech tags · **CVE correlation** · **subdomain-takeover** fingerprints |
 | **Evasion** | uTLS JA3/JA4 (14 ClientHello profiles) · HTTP/2 + real HTTP/3 (QUIC) · coherent header profiles · Gaussian/Pareto jitter · proxy rotation · custom `--resolvers` / `--sni` |
-| **Bypass** | 403/401 header-manipulation engine · method fuzzing on 405 · per-host **UCB1 bandit** adaptive bypass |
+| **Bypass** | 403/401 **header + path-mutation** engine · method fuzzing on 405 · per-host **UCB1 bandit** adaptive bypass |
+| **Auth & sessions** | `--cookie` / persistent **cookie jar** for authenticated scanning |
 | **Resilience** | Per-host circuit breaker · **AIMD** adaptive pacing · global `--max-duration` · `--resume` checkpoints · deadlock-free unbounded queue with backpressure |
-| **Output** | `jsonl` · `json` (schema 3.1) · `csv` · **interactive HTML** · **SARIF** · live stdout streaming · Slack/Discord webhooks · CI `--fail-on` gates |
+| **Output** | `jsonl` · `json` (schema 3.1) · `csv` · **interactive HTML** · **SARIF** · **Burp sitemap** · live stdout streaming · Slack/Discord webhooks · CI `--fail-on` gates |
+| **Ops** | **Continuous monitoring** (`--monitor`) · scan **diffing** (`--baseline`) · **Prometheus** metrics · preset **profiles** · YAML `--config` |
 
 ---
 
@@ -124,6 +127,46 @@ capsaicin -u https://target.com -w words.txt \
 capsaicin -u https://10.0.0.5/ -w subdomains.txt --vhost
 ```
 
+**Zero-config bug-bounty sweep** (embedded wordlist + preset)
+```bash
+# --profile bug-bounty turns on adaptive-rate, calibration, param-fuzz,
+# backup-probe, takeover and depth 2 — no wordlist file required.
+capsaicin -u https://target.com --builtin common --profile bug-bounty --passive
+```
+
+**Active vulnerability probing + hidden parameters**
+```bash
+capsaicin -u 'https://app.target.com/FUZZ' -w words.txt \
+  --param-fuzz --active-probes --oob-domain oob.mycollab.net
+```
+
+**Nuclei-style templates**
+```bash
+capsaicin -u https://target.com --templates ./templates -w words.txt
+# every YAML under ./templates runs against each target root + discovered dirs
+```
+
+**Continuous monitoring with Slack alerts**
+```bash
+capsaicin -u https://target.com -w words.txt \
+  --monitor 3600 --webhook "$SLACK_URL" --metrics :9090
+# re-scans hourly, alerts only on NEW findings, exposes Prometheus at :9090/metrics
+```
+
+**Diff against a previous scan**
+```bash
+capsaicin -u https://target.com -w words.txt -o today.jsonl
+capsaicin -u https://target.com -w words.txt --baseline today.jsonl
+# prints: N new · M changed · K removed
+```
+
+**Authenticated scan → Burp sitemap**
+```bash
+capsaicin -u https://app.target.com -w words.txt \
+  --cookie "session=abc123" --cookie-jar \
+  --output-format burp -o sitemap.xml
+```
+
 **CI gate + SARIF for GitHub code scanning**
 ```bash
 capsaicin -u https://staging.target.com -w words.txt \
@@ -189,6 +232,24 @@ capsaicin -u https://target.com -w huge.txt \
 | `--adaptive-rate` | `false` | Per-host UCB1 bandit bypass + AIMD auto-slowdown |
 | `--headless` | `false` | Solve JS challenges (Cloudflare/DataDome/reCAPTCHA) via a browser |
 
+### Active Testing & Intelligence
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--builtin` | — | Run with an **embedded** wordlist (`common` · `params`) — no `-w` needed |
+| `--no-bypass` | `false` | Disable the 403/401 bypass engine (header spoofing **+ path mutations**) |
+| `--backup-probe` | `false` | Probe `.bak`/`~`/`.old`/`.swp` variants of every discovered file |
+| `--learn` | `false` | Harvest words from responses and feed them back into the queue |
+| `--param-fuzz` | `false` | Discover **hidden query parameters** (Arjun-style reflection/diff) |
+| `--param-wordlist` | *(built-in)* | Candidate parameter list for `--param-fuzz` |
+| `--active-probes` | `false` | Active checks: **open-redirect · CRLF · LFI/path-traversal · SSRF** |
+| `--oob-domain` | — | Out-of-band collaborator domain for `--active-probes` SSRF confirmation |
+| `--takeover` | `false` | Fingerprint **subdomain-takeover** conditions on target roots |
+| `--passive` | `false` | Seed the scan from **wayback / OTX / urlscan / crt.sh** (zero target traffic) |
+| `--templates` | — | Directory of **Nuclei-style YAML templates** to run against each target |
+
+> CVE correlation (version → known CVE) runs automatically from fingerprinted `Server`/`X-Powered-By` banners.
+
 ### Evasion & Network
 
 | Flag | Default | Description |
@@ -208,13 +269,25 @@ capsaicin -u https://target.com -w huge.txt \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-o` | — | Output file (`-` = stdout) |
-| `--output-format` | `jsonl` | `jsonl` · `json` · `csv` · `html` · `sarif` |
+| `--output-format` | `jsonl` | `jsonl` · `json` · `csv` · `html` · `sarif` · **`burp`** (Burp sitemap XML) |
 | `--webhook` | — | Slack/Discord/generic URL notified of findings |
 | `--webhook-min-severity` | `high` | Minimum severity to notify |
 | `--fail-on` | — | Exit code 2 if any finding ≥ threshold |
 | `--allow` / `--deny` | — | Host scope with `*` wildcard (repeatable) |
 | `--silent` / `--no-color` | `false` | Suppress UI / disable color (also honors `NO_COLOR` & non-TTY) |
 | `--log-level` / `--debug` | `info` | `--debug` reveals **why** requests fail (DNS/TLS/timeout/CB) |
+
+### Auth, Monitoring & Ops
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--cookie` | — | `Cookie` header value sent with every request |
+| `--cookie-jar` | `false` | Persist `Set-Cookie` across requests (session continuity) |
+| `--baseline` | — | Prior JSONL results to **diff** this scan against (new/changed/removed) |
+| `--monitor` | `0` | Continuous mode: re-scan every N seconds, alert on **new** findings |
+| `--metrics` | — | Serve live **Prometheus** metrics (e.g. `:9090` → `/metrics`) |
+| `--profile` | — | Preset: `bug-bounty` · `ci-fast` · `stealth` (explicit flags still win) |
+| `--config` | — | YAML config file supplying default flag values |
 
 > 💡 Key numeric flags are also settable via `CAPSAICIN_`-prefixed environment variables (e.g. `CAPSAICIN_THREADS=100`).
 

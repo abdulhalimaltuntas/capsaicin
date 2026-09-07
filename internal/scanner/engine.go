@@ -16,8 +16,11 @@ import (
 	"github.com/abdulhalimaltuntas/capsaicin/internal/detection"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/headless"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/logging"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/passive"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/policy"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/templates"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/transport"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/wordlist"
 )
 
 type Engine struct {
@@ -145,11 +148,26 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 			}
 		}
 	default:
-		var err error
-		words, err = loadWordlist(e.config.Wordlist)
-		if err != nil {
-			return nil, nil, err
+		if e.config.Wordlist != "" {
+			var err error
+			words, err = loadWordlist(e.config.Wordlist)
+			if err != nil {
+				return nil, nil, err
+			}
+		} else if e.config.Builtin != "" {
+			words = wordlist.Get(e.config.Builtin)
+		} else if e.config.TemplateDir != "" || e.config.Passive {
+			// Discovery-only run (templates/passive): seed a minimal built-in list
+			// so root-level fuzzing still happens.
+			words = wordlist.Get(wordlist.Common)
 		}
+	}
+
+	// Passive intelligence: widen the path set from public sources (wayback/otx/
+	// urlscan) and collect observed subdomains to surface as findings.
+	var passiveSubs []Result
+	if e.config.Passive {
+		words, passiveSubs = e.seedPassive(ctx, targets, words)
 	}
 
 	matcher, err := NewMatcher(e.config)
@@ -289,6 +307,24 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 		}
 	}()
 
+	// Active-testing side channels: allocate a dedup set only when the feature is
+	// enabled, so a plain scan pays nothing.
+	var learnSeen, backupSeen, paramSeen, probeSeen *markSet
+	if e.config.Learn {
+		learnSeen = newMarkSet()
+	}
+	if e.config.BackupProbe {
+		backupSeen = newMarkSet()
+	}
+	var paramCandidates []string
+	if e.config.ParamFuzz {
+		paramSeen = newMarkSet()
+		paramCandidates = e.loadParamCandidates()
+	}
+	if e.config.ActiveProbes {
+		probeSeen = newMarkSet()
+	}
+
 	wc := &workerContext{
 		cfg:           e.config,
 		client:        e.client,
@@ -308,6 +344,12 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 		policy:        policyEngine,
 		solver:        solver,
 		sessions:      sessions,
+
+		learnSeen:       learnSeen,
+		backupSeen:      backupSeen,
+		paramSeen:       paramSeen,
+		probeSeen:       probeSeen,
+		paramCandidates: paramCandidates,
 	}
 
 	workerDone := make(chan struct{}, e.config.Threads)
@@ -347,6 +389,12 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 			// Favicon intel probe (dynamic, independent of initialTaskCount).
 			taskWg.Add(1)
 			queue.push(Task{TargetURL: target, Kind: taskFavicon})
+
+			// Subdomain-takeover fingerprint probe on the target root.
+			if e.config.Takeover {
+				taskWg.Add(1)
+				queue.push(Task{TargetURL: target, Kind: taskTakeover})
+			}
 
 			// Multi-wordlist (clusterbomb/pitchfork): substitute keywords in the
 			// URL for each generated combination.
@@ -423,9 +471,218 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 
 	wg.Wait()
 
+	// Post-discovery phases run single-threaded now that the collector goroutine
+	// (the only other dedup writer) has returned, so dedup writes are race-free.
+
+	// Inject passive-intel subdomain findings.
+	for i := range passiveSubs {
+		r := passiveSubs[i]
+		if dedup.Add(&r) {
+			stats.IncrementFound()
+		}
+	}
+
+	// Nuclei-style template phase: run declarative checks against target roots and
+	// discovered directories, merging any matches into the finding set.
+	if e.config.TemplateDir != "" {
+		for _, r := range e.runTemplates(ctx, targets, dedup.OrderedResults()) {
+			rr := r
+			if dedup.Add(&rr) {
+				stats.IncrementFound()
+			}
+		}
+	}
+
 	// Safe to read without extra synchronization: wg.Wait() has observed the
 	// collector goroutine (the only writer to dedup) return.
 	return dedup.OrderedResults(), stats, nil
+}
+
+// runTemplates loads the YAML template set and evaluates it against each target
+// root plus a bounded set of discovered directories, returning the matches as
+// findings. Load errors are logged and skipped so a single bad template never
+// aborts the phase.
+func (e *Engine) runTemplates(ctx context.Context, targets []string, discovered []Result) []Result {
+	tmpls, errs := templates.LoadDir(e.config.TemplateDir)
+	for _, err := range errs {
+		logging.Warn("template load skipped", "err", err)
+	}
+	if len(tmpls) == 0 {
+		return nil
+	}
+	logging.Info("template phase", "templates", len(tmpls))
+
+	fetch := func(ctx context.Context, method, rawURL string, headers map[string]string, body string) (*templates.Response, error) {
+		var reqBody *strings.Reader
+		if body != "" {
+			reqBody = strings.NewReader(body)
+		}
+		var req *http.Request
+		var err error
+		if reqBody != nil {
+			req, err = http.NewRequestWithContext(ctx, method, rawURL, reqBody)
+		} else {
+			req, err = http.NewRequestWithContext(ctx, method, rawURL, nil)
+		}
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range e.config.CustomHeaders {
+			req.Header.Set(k, v)
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, respBody, err := e.client.DoContext(ctx, req, e.config.RateLimit)
+		if err != nil {
+			return nil, err
+		}
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return &templates.Response{Status: resp.StatusCode, Header: resp.Header, Body: string(respBody)}, nil
+	}
+
+	engine := templates.NewEngine(tmpls, fetch)
+
+	// Base URLs: target roots + discovered directories (bounded).
+	bases := make([]string, 0, len(targets)+16)
+	seen := make(map[string]bool)
+	addBase := func(u string) {
+		u = strings.TrimSuffix(u, "/")
+		if u == "" || seen[u] {
+			return
+		}
+		seen[u] = true
+		bases = append(bases, u)
+	}
+	for _, t := range targets {
+		addBase(t)
+	}
+	const maxDiscoveredBases = 40
+	extra := 0
+	for i := range discovered {
+		if extra >= maxDiscoveredBases {
+			break
+		}
+		if isDirectory(&discovered[i]) {
+			clean := discovered[i].URL
+			if idx := strings.Index(clean, " ["); idx >= 0 {
+				clean = clean[:idx]
+			}
+			addBase(clean)
+			extra++
+		}
+	}
+
+	var out []Result
+	for _, base := range bases {
+		select {
+		case <-ctx.Done():
+			return out
+		default:
+		}
+		for _, m := range engine.RunAll(ctx, base) {
+			out = append(out, templateMatchToResult(m))
+		}
+	}
+	return out
+}
+
+// templateMatchToResult converts a template engine match into a scanner Result.
+func templateMatchToResult(m templates.Match) Result {
+	tags := []string{"template", "template:" + m.TemplateID}
+	if m.Tags != "" {
+		for _, t := range strings.Split(m.Tags, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				tags = append(tags, t)
+			}
+		}
+	}
+	for _, ex := range m.Extracted {
+		tags = append(tags, "extracted:"+ex)
+	}
+	severity := m.Severity
+	if severity == "" {
+		severity = SeverityInfo
+	}
+	name := m.Name
+	if name == "" {
+		name = m.TemplateID
+	}
+	return Result{
+		URL:        m.URL + " [TEMPLATE:" + name + "]",
+		StatusCode: 200,
+		Method:     "GET",
+		Severity:   severity,
+		Confidence: ConfidenceFirm,
+		Critical:   severity == SeverityCritical,
+		Timestamp:  time.Now().Format(time.RFC3339),
+		Tags:       tags,
+	}
+}
+
+// loadParamCandidates resolves the parameter list for --param-fuzz: an explicit
+// --param-wordlist file, else the embedded "params" list.
+func (e *Engine) loadParamCandidates() []string {
+	if e.config.ParamList != "" {
+		if words, err := loadWordlist(e.config.ParamList); err == nil && len(words) > 0 {
+			return words
+		}
+	}
+	return wordlist.Get(wordlist.Params)
+}
+
+// seedPassive queries public intelligence sources for each target host, merging
+// discovered paths into the word set and returning informational findings for any
+// observed subdomains. It is best-effort: source failures shrink coverage only.
+func (e *Engine) seedPassive(ctx context.Context, targets []string, words []string) ([]string, []Result) {
+	collector := passive.New(time.Duration(e.config.Timeout*3) * time.Second)
+
+	seen := make(map[string]bool, len(words))
+	for _, w := range words {
+		seen[w] = true
+	}
+	merged := words
+	var subs []Result
+	seenSub := make(map[string]bool)
+
+	for _, target := range targets {
+		select {
+		case <-ctx.Done():
+			return merged, subs
+		default:
+		}
+		host := hostOf(target)
+		res := collector.Collect(ctx, host)
+		added := 0
+		for _, p := range res.Paths {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			merged = append(merged, p)
+			added++
+		}
+		for _, s := range res.Subdomains {
+			if s == "" || seenSub[s] {
+				continue
+			}
+			seenSub[s] = true
+			subs = append(subs, Result{
+				URL:        "https://" + s + "/",
+				StatusCode: 0,
+				Method:     "PASSIVE",
+				Severity:   SeverityInfo,
+				Confidence: ConfidenceTentative,
+				Timestamp:  time.Now().Format(time.RFC3339),
+				Tags:       []string{"subdomain", "passive-intel"},
+			})
+		}
+		logging.Info("passive intel", "host", host, "paths_added", added,
+			"subdomains", len(res.Subdomains), "sources", strings.Join(res.Sources, ","))
+	}
+	return merged, subs
 }
 
 // prepareTargets probes each target root and normalizes its scheme:

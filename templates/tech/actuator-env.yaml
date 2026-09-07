@@ -1,0 +1,29 @@
+id: spring-actuator-env
+info:
+  name: Spring Boot Actuator /env exposed
+  author: capsaicin
+  severity: high
+  tags: exposure,spring,actuator,config
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/actuator/env"
+      - "{{BaseURL}}/env"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+      - type: word
+        part: header
+        words:
+          - "application/vnd.spring-boot.actuator"
+          - "application/json"
+        condition: or
+      - type: word
+        part: body
+        condition: or
+        words:
+          - "propertySources"
+          - "systemEnvironment"
+          - "activeProfiles"

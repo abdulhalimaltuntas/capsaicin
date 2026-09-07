@@ -13,11 +13,14 @@ import (
 	"time"
 
 	"github.com/abdulhalimaltuntas/capsaicin/internal/config"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/diff"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/logging"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/metrics"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/notify"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/reporting"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/scanner"
 	"github.com/abdulhalimaltuntas/capsaicin/internal/ui"
+	"github.com/abdulhalimaltuntas/capsaicin/internal/wordlist"
 	"github.com/spf13/cobra"
 )
 
@@ -94,8 +97,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Count wordlist lines for display.
-	wordCount, _ := scanner.CountWordlist(cfg.Wordlist)
+	// Count wordlist lines for display. Falls back to the embedded list count when
+	// running with --builtin and no -w file.
+	wordCount := 0
+	if cfg.Wordlist != "" {
+		wordCount, _ = scanner.CountWordlist(cfg.Wordlist)
+	} else if cfg.Builtin != "" {
+		wordCount = len(wordlist.Get(cfg.Builtin))
+	}
 
 	// Value semantic pass for backward-compatibility with UI package which
 	// currently expects a non-pointer config.Config struct.
@@ -184,6 +193,27 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, "  [!] Scan cancelled before initialization")
 		os.Exit(0)
 	}
+
+	// Optional Prometheus metrics endpoint for long-running scans.
+	if cfg.MetricsAddr != "" {
+		ms := metrics.New(cfg.MetricsAddr, func() metrics.Snapshot {
+			return metrics.Snapshot{
+				Processed:  stats.GetProcessed(),
+				Total:      stats.GetTotal(),
+				Found:      stats.GetFound(),
+				Errors:     stats.GetErrors(),
+				Secrets:    stats.GetSecrets(),
+				WAFHits:    stats.GetWAFHits(),
+				ElapsedSec: time.Since(stats.StartTime).Seconds(),
+			}
+		})
+		if err := ms.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "  metrics server failed: %s\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "  metrics: serving Prometheus at %s/metrics\n", cfg.MetricsAddr)
+			defer ms.Stop(context.Background())
+		}
+	}
 	uiCtx, uiCancel := context.WithCancel(ctx)
 	uiDone := make(chan struct{})
 	go func() {
@@ -215,6 +245,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	ui.PrintSummary(stats, results)
 
+	// Baseline diff: compare this run against a prior JSONL to surface drift.
+	if cfg.Baseline != "" {
+		if report, derr := diff.Compare(results, cfg.Baseline); derr != nil {
+			fmt.Fprintf(os.Stderr, "  baseline diff failed: %s\n", derr)
+		} else {
+			printDiff(report)
+		}
+	}
+
 	if cfg.OutputFile != "" && !streaming {
 		scanDuration := time.Since(scanStart)
 		var werr error
@@ -227,6 +266,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 			werr = reporting.GenerateHTML(results, cfg.OutputFile)
 		case "sarif":
 			werr = reporting.SaveSARIF(results, cfg.OutputFile)
+		case "burp":
+			werr = reporting.SaveBurp(results, cfg.OutputFile)
 		default: // json
 			werr = reporting.SaveJSONReport(results, cfg.OutputFile, targets, runID, scanStart, scanDuration)
 		}
@@ -254,6 +295,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Continuous monitoring: keep re-scanning and alert on newly-appeared
+	// findings. Blocks until the context is cancelled (Ctrl-C).
+	if cfg.Monitor > 0 {
+		runMonitor(ctx, cfg, targets, results)
+		return nil
+	}
+
 	if cfg.FailOn != "" {
 		exitCode := scanner.DetermineExitCode(results, cfg.FailOn)
 		if exitCode != 0 {
@@ -263,4 +311,59 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// printDiff renders a scan-vs-baseline delta to stderr.
+func printDiff(report *diff.Report) {
+	if !report.HasChanges() {
+		fmt.Fprintln(os.Stderr, "  diff: no changes vs baseline")
+		return
+	}
+	fmt.Fprintf(os.Stderr, "  diff: %d new · %d changed · %d removed\n",
+		len(report.New), len(report.Changed), len(report.Removed))
+	for _, r := range report.New {
+		fmt.Fprintf(os.Stderr, "    + [%d] %s (%s)\n", r.StatusCode, r.URL, r.Severity)
+	}
+	for _, c := range report.Changed {
+		fmt.Fprintf(os.Stderr, "    ~ [%d→%d] %s\n", c.Before.StatusCode, c.After.StatusCode, c.After.URL)
+	}
+	for _, r := range report.Removed {
+		fmt.Fprintf(os.Stderr, "    - %s\n", r.URL)
+	}
+}
+
+// runMonitor re-scans the targets on an interval, diffing each run against the
+// previous one and pushing newly-appeared findings to the configured webhook.
+func runMonitor(ctx context.Context, cfg *config.Config, targets []string, prev []scanner.Result) {
+	interval := time.Duration(cfg.Monitor) * time.Second
+	fmt.Fprintf(os.Stderr, "\n  monitor: re-scanning every %ds (Ctrl-C to stop)\n", cfg.Monitor)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+
+		engine, err := scanner.NewEngine(*cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  monitor: engine init failed: %s\n", err)
+			continue
+		}
+		results, _, err := engine.RunContext(ctx, targets)
+		if err != nil && ctx.Err() != nil {
+			return
+		}
+
+		report := diff.CompareResults(results, prev)
+		fmt.Fprintf(os.Stderr, "  monitor: %s · ", time.Now().Format("15:04:05"))
+		printDiff(report)
+
+		if cfg.Webhook != "" && len(report.New) > 0 {
+			if n, werr := notify.SendWebhook(ctx, cfg.Webhook, report.New, cfg.WebhookMinSeverity); werr == nil && n > 0 {
+				fmt.Fprintf(os.Stderr, "  monitor: alerted %d new finding(s)\n", n)
+			}
+		}
+		prev = results
+	}
 }

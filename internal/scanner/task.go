@@ -5,9 +5,10 @@ package scanner
 type taskKind int
 
 const (
-	taskNormal  taskKind = iota
-	taskFavicon          // fetch /favicon.ico and fingerprint it
-	taskVHost            // fuzz the Host header instead of the path
+	taskNormal   taskKind = iota
+	taskFavicon           // fetch /favicon.ico and fingerprint it
+	taskVHost             // fuzz the Host header instead of the path
+	taskTakeover          // fetch the target root and fingerprint subdomain-takeover
 )
 
 type Task struct {

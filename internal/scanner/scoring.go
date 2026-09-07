@@ -128,6 +128,26 @@ func AssignSeverityAndConfidence(r *Result) {
 			r.Severity = SeverityMedium
 		}
 	}
+
+	// A CVE correlation (version fingerprint → known CVE) is at least medium;
+	// confidence stays tentative because a banner version is not proof the host
+	// is exploitable (backports, WAF virtual-patching).
+	if hasTagPrefix(r.Tags, "cve:") {
+		if CompareSeverity(SeverityMedium, r.Severity) > 0 {
+			r.Severity = SeverityMedium
+		}
+		r.Tags = appendUnique(r.Tags, "cve")
+	}
+}
+
+// hasTagPrefix reports whether any tag starts with the given prefix.
+func hasTagPrefix(tags []string, prefix string) bool {
+	for _, t := range tags {
+		if strings.HasPrefix(t, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasAnyTag reports whether tags contains any of the given values.

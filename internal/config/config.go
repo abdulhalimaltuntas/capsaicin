@@ -103,6 +103,33 @@ type Config struct {
 	Webhook            string // --webhook              (Slack/Discord/generic)
 	WebhookMinSeverity string // --webhook-min-severity
 
+	// ── Bypass / active testing ───────────────────────────────────────────
+	NoBypass     bool   // --no-bypass     (disable 403/401 header + path-mutation bypass; default: bypass on)
+	BackupProbe  bool   // --backup-probe  (probe .bak/~/.old variants of discovered files)
+	Learn        bool   // --learn         (harvest words from responses back into the queue)
+	ParamFuzz    bool   // --param-fuzz    (Arjun-style hidden parameter discovery)
+	ParamList    string // --param-wordlist(candidate params; default built-in list)
+	ActiveProbes bool   // --active-probes (open-redirect/CRLF/LFI/SSRF checks)
+	OOBDomain    string // --oob-domain    (out-of-band collaborator domain for SSRF)
+	Takeover     bool   // --takeover      (subdomain-takeover fingerprinting on roots)
+
+	// ── Templates & intel ─────────────────────────────────────────────────
+	TemplateDir string // --templates     (Nuclei-style YAML template directory)
+	Passive     bool   // --passive       (seed from wayback/otx/urlscan/crt.sh)
+	Builtin     string // --builtin       (embedded wordlist name: common|params)
+
+	// ── Auth ──────────────────────────────────────────────────────────────
+	Cookies   string // --cookie      (Cookie header value)
+	CookieJar bool   // --cookie-jar  (persist Set-Cookie across requests)
+
+	// ── Monitoring & metrics ──────────────────────────────────────────────
+	Baseline    string // --baseline    (prior JSONL to diff against)
+	Monitor     int    // --monitor     (re-scan every N seconds; 0 = single run)
+	MetricsAddr string // --metrics     (serve Prometheus metrics, e.g. :9090)
+
+	// ── Profiles ──────────────────────────────────────────────────────────
+	Profile string // --profile     (bug-bounty|ci-fast|stealth)
+
 	// ── Internal (populated at runtime, not user-facing) ──────────────────
 	RawHeaders  []string       // raw -H values before parsing
 	InlineWords []string       // words injected in-process (e.g. cluster agent); bypasses Wordlist file
@@ -219,6 +246,34 @@ func InitFlags(cmd *cobra.Command) {
 	f.String("webhook", "", "Webhook URL to notify on findings (Slack/Discord/generic JSON)")
 	f.String("webhook-min-severity", "high", "Minimum severity to trigger --webhook")
 
+	// ── Bypass / active testing ────────────────────────────────────────────
+	f.Bool("no-bypass", false, "Disable 403/401 bypass (IP-spoof headers + path mutations); bypass is on by default")
+	f.Bool("backup-probe", false, "Probe backup/temp variants (.bak, ~, .old, .swp) of discovered files")
+	f.Bool("learn", false, "Adaptive fuzzing: harvest words from responses and feed them back")
+	f.Bool("param-fuzz", false, "Discover hidden query parameters (Arjun-style reflection/diff)")
+	f.String("param-wordlist", "", "Candidate parameters for --param-fuzz (default: built-in list)")
+	f.Bool("active-probes", false, "Run active checks: open-redirect, CRLF, LFI/path-traversal, SSRF")
+	f.String("oob-domain", "", "Out-of-band collaborator domain for --active-probes SSRF confirmation")
+	f.Bool("takeover", false, "Fingerprint subdomain-takeover conditions on target roots")
+
+	// ── Templates & intel ──────────────────────────────────────────────────
+	f.String("templates", "", "Directory of Nuclei-style YAML templates to run against each target")
+	f.Bool("passive", false, "Seed the scan from public sources (wayback/otx/urlscan/crt.sh)")
+	f.String("builtin", "", "Use an embedded wordlist when -w is omitted [common|params]")
+
+	// ── Auth ───────────────────────────────────────────────────────────────
+	f.String("cookie", "", "Cookie header value sent with every request")
+	f.Bool("cookie-jar", false, "Persist Set-Cookie responses across requests (session continuity)")
+
+	// ── Monitoring & metrics ───────────────────────────────────────────────
+	f.String("baseline", "", "Prior JSONL results file to diff this scan against")
+	f.Int("monitor", 0, "Continuous mode: re-scan every N seconds, alerting on new findings (0 = off)")
+	f.String("metrics", "", "Serve live Prometheus metrics on this address (e.g. :9090)")
+
+	// ── Profiles ───────────────────────────────────────────────────────────
+	f.String("profile", "", "Apply a preset [bug-bounty|ci-fast|stealth] (explicit flags still win)")
+	f.String("config", "", "YAML config file with default flag values")
+
 	// ── Cobra shorthands for matcher/filter ────────────────────────────────
 	// Register aliases using MarkShorthandDeprecated-free approach:
 	// we define direct short flags for the most common matchers.
@@ -261,6 +316,15 @@ func bindViperFlags(cmd *cobra.Command, flags []string) {
 func LoadConfig(cmd *cobra.Command) (*Config, error) {
 	f := cmd.Flags()
 
+	// Optional YAML config file: values become viper defaults that getString/
+	// getInt/getBool honor for any flag the user did not pass explicitly.
+	if cf, _ := f.GetString("config"); cf != "" {
+		viper.SetConfigFile(cf)
+		if err := viper.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("read --config %s: %w", cf, err)
+		}
+	}
+
 	getString := func(name string) string {
 		if viper.IsSet(name) {
 			return viper.GetString(name)
@@ -276,6 +340,10 @@ func LoadConfig(cmd *cobra.Command) (*Config, error) {
 		return v
 	}
 	getBool := func(name string) bool {
+		// An explicit flag wins; otherwise fall back to viper (env/config file).
+		if !f.Changed(name) && viper.IsSet(name) {
+			return viper.GetBool(name)
+		}
 		v, _ := f.GetBool(name)
 		return v
 	}
@@ -412,11 +480,112 @@ func LoadConfig(cmd *cobra.Command) (*Config, error) {
 		Webhook:            getString("webhook"),
 		WebhookMinSeverity: strings.ToLower(getString("webhook-min-severity")),
 
+		NoBypass:     getBool("no-bypass"),
+		BackupProbe:  getBool("backup-probe"),
+		Learn:        getBool("learn"),
+		ParamFuzz:    getBool("param-fuzz"),
+		ParamList:    getString("param-wordlist"),
+		ActiveProbes: getBool("active-probes"),
+		OOBDomain:    getString("oob-domain"),
+		Takeover:     getBool("takeover"),
+
+		TemplateDir: getString("templates"),
+		Passive:     getBool("passive"),
+		Builtin:     strings.ToLower(getString("builtin")),
+
+		Cookies:   getString("cookie"),
+		CookieJar: getBool("cookie-jar"),
+
+		Baseline:    getString("baseline"),
+		Monitor:     getInt("monitor"),
+		MetricsAddr: getString("metrics"),
+
+		Profile: strings.ToLower(getString("profile")),
+
 		RawHeaders: rawHeaders,
 		Wordlists:  wordlists,
 	}
 
+	// A --cookie value is merged into the header set so every request carries it.
+	if cfg.Cookies != "" {
+		if cfg.CustomHeaders == nil {
+			cfg.CustomHeaders = map[string]string{}
+		}
+		if existing, ok := cfg.CustomHeaders["Cookie"]; ok && existing != "" {
+			cfg.CustomHeaders["Cookie"] = existing + "; " + cfg.Cookies
+		} else {
+			cfg.CustomHeaders["Cookie"] = cfg.Cookies
+		}
+	}
+
+	// Apply a named preset for any flag the user did not set explicitly.
+	applyProfile(cmd, cfg)
+
 	return cfg, nil
+}
+
+// applyProfile overlays a named preset onto cfg. It only touches flags the user
+// did NOT pass explicitly (checked via cobra's Changed), so an explicit flag
+// always wins over the preset.
+func applyProfile(cmd *cobra.Command, cfg *Config) {
+	if cfg.Profile == "" {
+		return
+	}
+	changed := func(name string) bool { return cmd.Flags().Changed(name) }
+
+	switch cfg.Profile {
+	case "bug-bounty":
+		if !changed("threads") {
+			cfg.Threads = 60
+		}
+		if !changed("jitter") {
+			cfg.JitterProfile = "moderate"
+		}
+		if !changed("adaptive-rate") {
+			cfg.AdaptiveRate = true
+		}
+		if !changed("auto-calibrate") {
+			cfg.AutoCalibrate = true
+		}
+		if !changed("param-fuzz") {
+			cfg.ParamFuzz = true
+		}
+		if !changed("backup-probe") {
+			cfg.BackupProbe = true
+		}
+		if !changed("takeover") {
+			cfg.Takeover = true
+		}
+		if !changed("depth") && cfg.MaxDepth == 0 {
+			cfg.MaxDepth = 2
+		}
+	case "ci-fast":
+		if !changed("threads") {
+			cfg.Threads = 100
+		}
+		if !changed("jitter") {
+			cfg.JitterProfile = "aggressive"
+		}
+		if !changed("timeout") {
+			cfg.Timeout = 6
+		}
+		if !changed("no-bypass") {
+			cfg.NoBypass = true
+		}
+	case "stealth":
+		if !changed("threads") {
+			cfg.Threads = 8
+		}
+		if !changed("jitter") {
+			cfg.JitterProfile = "paranoid"
+		}
+		if !changed("tls-impersonate") {
+			cfg.TLSImpersonate = "random"
+		}
+		if !changed("header-rotation") {
+			cfg.HeaderRotation = true
+		}
+	}
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -429,8 +598,13 @@ func ValidateConfig(c *Config) error {
 	var warnings []string
 
 	// ── Required fields ───────────────────────────────────────────────────
-	if c.Wordlist == "" && len(c.Wordlists) == 0 {
-		return fmt.Errorf("wordlist is required (-w)")
+	// A wordlist source is required, but there are several: an explicit -w file,
+	// an embedded --builtin list, in-process InlineWords (cluster agent), or a
+	// discovery-only run driven by --templates/--passive.
+	hasWordSource := c.Wordlist != "" || len(c.Wordlists) > 0 || len(c.InlineWords) > 0 ||
+		c.Builtin != "" || c.TemplateDir != "" || c.Passive
+	if !hasWordSource {
+		return fmt.Errorf("no word source: pass -w <file>, --builtin <name>, --templates <dir>, or --passive")
 	}
 	for _, wl := range c.Wordlists {
 		if _, err := os.Stat(wl.Path); os.IsNotExist(err) {
@@ -519,10 +693,10 @@ func ValidateConfig(c *Config) error {
 	}
 
 	validOutputFormat := map[string]bool{
-		"jsonl": true, "json": true, "html": true, "csv": true, "sarif": true,
+		"jsonl": true, "json": true, "html": true, "csv": true, "sarif": true, "burp": true,
 	}
 	if !validOutputFormat[c.OutputFormat] {
-		return fmt.Errorf("invalid --output-format %q; valid: jsonl, json, html, csv, sarif", c.OutputFormat)
+		return fmt.Errorf("invalid --output-format %q; valid: jsonl, json, html, csv, sarif, burp", c.OutputFormat)
 	}
 
 	if c.WebhookMinSeverity != "" {
@@ -539,6 +713,38 @@ func ValidateConfig(c *Config) error {
 	}
 	if !validLogLevels[c.LogLevel] {
 		return fmt.Errorf("invalid --log-level %q; valid: debug, info, warn, error", c.LogLevel)
+	}
+
+	if c.Builtin != "" {
+		validBuiltin := map[string]bool{"common": true, "params": true}
+		if !validBuiltin[c.Builtin] {
+			return fmt.Errorf("invalid --builtin %q; valid: common, params", c.Builtin)
+		}
+	}
+
+	if c.Profile != "" {
+		validProfiles := map[string]bool{"bug-bounty": true, "ci-fast": true, "stealth": true}
+		if !validProfiles[c.Profile] {
+			return fmt.Errorf("invalid --profile %q; valid: bug-bounty, ci-fast, stealth", c.Profile)
+		}
+	}
+
+	if c.Monitor < 0 {
+		return fmt.Errorf("--monitor must be >= 0, got %d", c.Monitor)
+	}
+
+	// Template directory must exist if specified.
+	if c.TemplateDir != "" {
+		if info, err := os.Stat(c.TemplateDir); err != nil || !info.IsDir() {
+			return fmt.Errorf("--templates directory not found or not a directory: %s", c.TemplateDir)
+		}
+	}
+
+	// Param wordlist must exist if specified.
+	if c.ParamList != "" {
+		if _, err := os.Stat(c.ParamList); os.IsNotExist(err) {
+			return fmt.Errorf("--param-wordlist file not found: %s", c.ParamList)
+		}
 	}
 
 	if c.FailOn != "" {

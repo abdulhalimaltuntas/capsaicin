@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"sync"
 	"time"
@@ -137,6 +138,14 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse // Don't follow automatically // Don't follow automatically
 		},
+	}
+
+	// Optional cookie jar for authenticated scanning: Set-Cookie responses are
+	// persisted and replayed on subsequent requests, keeping a session alive.
+	if cfg.CookieJar {
+		if jar, jerr := cookiejar.New(nil); jerr == nil {
+			httpClient.Jar = jar
+		}
 	}
 
 	var headerProfile *BrowserProfile
