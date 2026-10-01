@@ -169,7 +169,10 @@ func InitFlags(cmd *cobra.Command) {
 	f.StringP("url", "u", "", "Target URL (supports FUZZ keyword)")
 	f.StringArrayP("wordlist", "w", nil, "Wordlist path[:KEYWORD], repeatable (clusterbomb/pitchfork)")
 	f.StringP("method", "X", "GET", "HTTP method")
-	f.StringSliceP("header", "H", nil, `Custom header ("Name: Value"), repeatable`)
+	// StringArray (not StringSlice): header values legitimately contain commas
+	// (e.g. `Accept: text/html,application/json`), which StringSlice would split
+	// into bogus extra entries.
+	f.StringArrayP("header", "H", nil, `Custom header ("Name: Value"), repeatable`)
 	f.StringP("data", "d", "", "POST body data")
 	f.String("mode", "sniper", "Fuzzing mode [sniper|clusterbomb|pitchfork|dynamic]")
 
@@ -378,7 +381,7 @@ func LoadConfig(cmd *cobra.Command) (*Config, error) {
 		primaryWordlist = wordlists[0].Path
 	}
 
-	rawHeaders := getStringSlice("header")
+	rawHeaders, _ := f.GetStringArray("header")
 	customHeaders := make(map[string]string, len(rawHeaders))
 	for _, h := range rawHeaders {
 		parts := strings.SplitN(h, ":", 2)
