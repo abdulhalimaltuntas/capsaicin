@@ -47,11 +47,14 @@ func TestMatcher_RegexAndEmptyDefault(t *testing.T) {
 func TestScope_AllowDeny(t *testing.T) {
 	s := NewScope([]string{"*.example.com", "target.io"}, []string{"admin.example.com"})
 	cases := map[string]bool{
-		"www.example.com":   true,
-		"api.example.com":   true,
-		"admin.example.com": false, // deny wins
-		"target.io":         true,
-		"evil.com":          false, // not allowed
+		"www.example.com":      true,
+		"api.example.com":      true,
+		"admin.example.com":    false, // deny wins
+		"target.io":            true,
+		"evil.com":             false, // not allowed
+		"api.example.com:8080": true,  // portless allow pattern matches any port
+		"target.io:443":        true,  // ditto
+		"admin.example.com:80": false, // portless deny still wins with a port
 	}
 	for host, want := range cases {
 		if got := s.Allowed(host); got != want {

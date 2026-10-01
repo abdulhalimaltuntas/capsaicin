@@ -360,7 +360,18 @@ func (e *Engine) RunWithEvents(ctx context.Context, targets []string, eventCh ch
 
 	taskWg.Add(int(initialTaskCount))
 
+	// Feeder sentinel: hold the WaitGroup non-zero for the entire lifetime of the
+	// feeder goroutine below. The feeder enqueues the favicon/takeover probes and
+	// the initial words, and then — for --spider / --mode dynamic — runs a slow
+	// crawl whose discovered paths are enqueued only at the very end. Without this
+	// guard a fast scan (few words, early completion) can drive taskWg to zero and
+	// close the queue before the crawl has enqueued anything, so every spider seed
+	// is silently dropped (push to a closed queue is a no-op). The sentinel keeps
+	// the queue open until the feeder has finished enqueuing all of its work.
+	taskWg.Add(1)
+
 	go func() {
+		defer taskWg.Done()
 		sentCount := int64(0)
 		baseWords := make(map[string]bool, len(words))
 		for _, w := range words {

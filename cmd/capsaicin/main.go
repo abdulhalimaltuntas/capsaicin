@@ -75,9 +75,23 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	ui.PrintBanner()
 
+	// Target resolution precedence: an explicit -u always wins. Only when -u is
+	// absent do we consume STDIN, and only when it is actually a pipe/redirect
+	// (not an interactive TTY). This ordering is deliberate: reading STDIN while
+	// -u is set would both ignore the flag and, worse, block forever when stdin
+	// is an open pipe with no data (a backgrounded process, or a CI runner that
+	// wires stdin to a long-lived pipe) — the scanner would hang before sending
+	// a single request.
 	targets := []string{}
-	stat, _ := os.Stdin.Stat()
-	if (stat.Mode() & os.ModeCharDevice) == 0 {
+	switch {
+	case cfg.TargetURL != "":
+		targets = append(targets, cfg.TargetURL)
+	default:
+		stat, err := os.Stdin.Stat()
+		piped := err == nil && (stat.Mode()&os.ModeCharDevice) == 0
+		if !piped {
+			return fmt.Errorf("no target specified. Use -u flag or pipe targets via STDIN")
+		}
 		fmt.Fprintln(os.Stderr, "  reading targets from STDIN...")
 		sc := bufio.NewScanner(os.Stdin)
 		for sc.Scan() {
@@ -87,10 +101,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 			}
 		}
 		fmt.Fprintf(os.Stderr, "  loaded %d targets\n", len(targets))
-	} else if cfg.TargetURL != "" {
-		targets = append(targets, cfg.TargetURL)
-	} else {
-		return fmt.Errorf("no target specified. Use -u flag or pipe targets via STDIN")
 	}
 
 	if err := config.Validate(cfg, targets); err != nil {
